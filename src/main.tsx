@@ -1,16 +1,10 @@
-import React from "react";
-import ReactDOM from "react-dom/client";
+import {StrictMode} from 'react';
+import {createRoot} from 'react-dom/client';
+import App from './App.tsx';
+import './index.css';
 
-function App() {
-  return (
-    <div style={{ padding: "40px", fontFamily: "Arial" }}>
-      <h1>Vercel Dashboard Running</h1>
-    </div>
-  );
-}
-
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
     <App />
-  </React.StrictMode>
+  </StrictMode>,
 );
