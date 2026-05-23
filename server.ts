@@ -1,16 +1,15 @@
 import express from "express";
 import path from "path";
-import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import helmet from "helmet";
 import cors from "cors";
 import mongoose from "mongoose";
-import adminRouter from "./routes/admin";
+import adminRouter from "./routes/admin.js";
 
 dotenv.config();
 
 const app = express();
-const PORT = parseInt(process.env.PORT || "5000", 10);
+const PORT = parseInt(process.env.PORT || "3000", 10);
 const MONGO_URI = process.env.MONGODB_URI || "";
 const DASHBOARD_URL = process.env.DASHBOARD_URL || "";
 
@@ -23,14 +22,17 @@ app.use(
   })
 );
 
-const allowedOrigins: string[] = [];
-if (DASHBOARD_URL) allowedOrigins.push(DASHBOARD_URL);
+const allowedOrigins: string[] = [
+  "https://newverceldashboard-yvw4.vercel.app",
+];
+if (DASHBOARD_URL && !allowedOrigins.includes(DASHBOARD_URL)) {
+  allowedOrigins.push(DASHBOARD_URL);
+}
 
 app.use(
   cors({
     origin: (origin, callback) => {
       if (!origin) return callback(null, true);
-      if (allowedOrigins.length === 0) return callback(null, true);
       if (allowedOrigins.includes(origin)) return callback(null, true);
       callback(new Error(`CORS: Origin ${origin} not allowed`));
     },
@@ -70,6 +72,7 @@ async function startServer() {
   }
 
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
@@ -78,13 +81,13 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-    app.get("*", (_req, res) => {
+    app.get("/{*splat}", (_req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`[server] Running on port ${PORT}`);
+    console.log(`[server] CutPricebot API running on port ${PORT}`);
   });
 }
 
