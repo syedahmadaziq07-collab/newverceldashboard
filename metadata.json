@@ -1,0 +1,8 @@
+{
+  "name": "Remix: CutPricebot Admin Dashboard",
+  "description": "Mobile-first admin dashboard for CutPricebot, an automated TikTok cut link swap bot.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
