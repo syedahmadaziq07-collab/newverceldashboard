@@ -1,6 +1,7 @@
 import { useState, FormEvent } from "react";
 import { KeyRound, Lock, ArrowRight, ShieldAlert } from "lucide-react";
 import { motion } from "motion/react";
+import { api, storeToken } from "../lib/api";
 
 interface LoginProps {
   onLoginSuccess: (token: string) => void;
@@ -22,17 +23,23 @@ export default function LoginView({ onLoginSuccess }: LoginProps) {
     setLoading(true);
     setError(null);
 
-    setTimeout(() => {
-      if (password === "admin123") {
-        const token = "local-admin-token";
-        localStorage.setItem("cutprice_admin_token", token);
-        onLoginSuccess(token);
+    try {
+      const res = await api.post<{ success: boolean; token: string }>(
+        "/api/admin/login",
+        { password }
+      );
+      if (res.success && res.token) {
+        storeToken(res.token);
+        onLoginSuccess(res.token);
       } else {
-        setError("Wrong admin passcode.");
+        setError("Login failed — invalid response from server.");
       }
-
+    } catch (err: any) {
+      console.error("[login] failed:", err);
+      setError(err.message || "Login failed. Please try again.");
+    } finally {
       setLoading(false);
-    }, 500);
+    }
   };
 
   return (
@@ -88,13 +95,22 @@ export default function LoginView({ onLoginSuccess }: LoginProps) {
             disabled={loading}
             className="w-full rounded-2xl bg-blue-600 px-5 py-4 font-semibold text-white shadow-lg shadow-blue-200 transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70 flex items-center justify-center gap-2"
           >
-            {loading ? "Checking..." : "Access Dashboard"}
-            {!loading && <ArrowRight className="w-5 h-5" />}
+            {loading ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                Authenticating...
+              </>
+            ) : (
+              <>
+                Access Dashboard
+                <ArrowRight className="w-5 h-5" />
+              </>
+            )}
           </button>
         </form>
 
         <p className="mt-6 text-center text-xs text-slate-400">
-          Secure connection encrypted · Local dashboard mode
+          Secure connection encrypted · JWT session
         </p>
       </motion.div>
     </div>

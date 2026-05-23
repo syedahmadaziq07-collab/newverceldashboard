@@ -23,6 +23,7 @@ import {
 import { motion } from "motion/react";
 import { DashboardStats } from "../types";
 import MetricCard from "./MetricCard";
+import { api } from "../lib/api";
 
 interface HomeViewProps {
   stats: DashboardStats | null;
@@ -47,26 +48,16 @@ export default function HomeView({ stats, onNavigate }: HomeViewProps) {
     setCleaning(type);
     setCleanupMessage(null);
     try {
-      const token = localStorage.getItem("cutpricebot_admin_token");
-      const res = await fetch("/api/admin/system/cleanup", {
-        method: "POST",
-        headers: {
-          "Authorization": token || "",
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ type })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setCleanupMessage(`Success: ${label} cleared ${data.cleanedCount || 0} stagnant rows.`);
-      } else {
-        setCleanupMessage("Failed to execute sweeper job.");
-      }
-    } catch {
-      setCleanupMessage("Error connecting to automation gateway.");
+      const data = await api.post<{ success: boolean; cleanedCount?: number }>(
+        "/api/admin/system/cleanup",
+        { type }
+      );
+      setCleanupMessage(`Success: ${label} cleared ${data.cleanedCount || 0} stagnant rows.`);
+    } catch (err: any) {
+      console.error("[sweeper]", err);
+      setCleanupMessage(err.message || "Error connecting to automation gateway.");
     } finally {
       setCleaning(null);
-      // Automatically dismiss success status after 4 seconds
       setTimeout(() => setCleanupMessage(null), 4000);
     }
   };
