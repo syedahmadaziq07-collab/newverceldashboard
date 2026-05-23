@@ -10,7 +10,7 @@ import adminRouter from "./routes/admin";
 dotenv.config();
 
 const app = express();
-const PORT = parseInt(process.env.PORT || "3000", 10);
+const PORT = parseInt(process.env.PORT || "5000", 10);
 const MONGO_URI = process.env.MONGODB_URI || "";
 const DASHBOARD_URL = process.env.DASHBOARD_URL || "";
 
