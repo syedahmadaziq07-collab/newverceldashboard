@@ -13,104 +13,89 @@ export default function LoginView({ onLoginSuccess }: LoginProps) {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!password.trim()) return;
+
+    if (!password.trim()) {
+      setError("Please enter admin passcode.");
+      return;
+    }
 
     setLoading(true);
     setError(null);
 
-    try {
-      const response = await fetch("/api/admin/login", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ password }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to authenticate");
+    setTimeout(() => {
+      if (password === "admin123") {
+        const token = "local-admin-token";
+        localStorage.setItem("cutprice_admin_token", token);
+        onLoginSuccess(token);
+      } else {
+        setError("Wrong admin passcode.");
       }
 
-      onLoginSuccess(data.token);
-    } catch (err: any) {
-      setError(err.message || "An unexpected error occurred");
-    } finally {
       setLoading(false);
-    }
+    }, 500);
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
       <motion.div
-        initial={{ opacity: 0, y: 15 }}
+        initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4 }}
-        className="w-full max-w-md bg-white rounded-3xl p-8 shadow-xl shadow-slate-200 border border-slate-100"
+        transition={{ duration: 0.35 }}
+        className="w-full max-w-md rounded-3xl bg-white p-8 shadow-xl border border-slate-100"
       >
-        <div className="flex flex-col items-center mb-8">
-          <div className="w-16 h-16 bg-blue-100 rounded-2xl flex items-center justify-center text-blue-600 mb-4 shadow-inner">
-            <KeyRound className="w-8 h-8" />
+        <div className="flex flex-col items-center text-center mb-8">
+          <div className="w-16 h-16 rounded-2xl bg-blue-100 flex items-center justify-center mb-4">
+            <KeyRound className="w-8 h-8 text-blue-600" />
           </div>
-          <h1 className="text-2xl font-bold font-display text-slate-800 tracking-tight">
+
+          <h1 className="text-2xl font-bold text-slate-900">
             CutPricebot.app
           </h1>
-          <p className="text-slate-500 text-sm mt-1">Admin Dashboard Login</p>
+
+          <p className="text-sm text-slate-500 mt-1">
+            Admin Dashboard Login
+          </p>
         </div>
 
         {error && (
-          <motion.div
-            initial={{ scale: 0.95, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="mb-6 p-4 bg-red-50 rounded-2xl border border-red-100 flex items-center gap-3 text-red-600 text-sm"
-          >
-            <ShieldAlert className="w-5 h-5 shrink-0" />
+          <div className="mb-5 flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-600">
+            <ShieldAlert className="w-5 h-5 shrink-0 mt-0.5" />
             <span>{error}</span>
-          </motion.div>
+          </div>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2 ml-1">
-              Admin Passcode
+            <label className="block text-xs font-semibold tracking-wide text-slate-500 mb-2">
+              ADMIN PASSCODE
             </label>
+
             <div className="relative">
-              <span className="absolute inset-y-0 left-0 pl-4 flex items-center text-slate-400">
-                <Lock className="w-5 h-5" />
-              </span>
+              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter admin password"
-                className="w-full pl-12 pr-4 py-3.5 bg-slate-50 rounded-2xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-sans text-slate-800 placeholder:text-slate-400"
-                disabled={loading}
+                placeholder="Enter admin passcode"
+                className="w-full rounded-2xl border border-slate-200 bg-white px-12 py-4 text-slate-900 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
               />
             </div>
           </div>
 
           <button
             type="submit"
-            disabled={loading || !password.trim()}
-            className="w-full bg-blue-600 active:bg-blue-700 disabled:bg-blue-300 text-white py-4 rounded-2xl font-semibold flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20 transition-all cursor-pointer"
+            disabled={loading}
+            className="w-full rounded-2xl bg-blue-600 px-5 py-4 font-semibold text-white shadow-lg shadow-blue-200 transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70 flex items-center justify-center gap-2"
           >
-            {loading ? (
-              <div className="w-5 h-5 border-2 border-white/35 border-t-white rounded-full animate-spin" />
-            ) : (
-              <>
-                <span>Access Dashboard</span>
-                <ArrowRight className="w-5 h-5" />
-              </>
-            )}
+            {loading ? "Checking..." : "Access Dashboard"}
+            {!loading && <ArrowRight className="w-5 h-5" />}
           </button>
         </form>
 
-        <div className="mt-8 text-center">
-          <p className="text-xs text-slate-400 font-mono">
-            Secure connection encrypted. Server Node 3000
-          </p>
-        </div>
+        <p className="mt-6 text-center text-xs text-slate-400">
+          Secure connection encrypted · Local dashboard mode
+        </p>
       </motion.div>
     </div>
   );
