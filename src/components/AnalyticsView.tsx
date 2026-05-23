@@ -90,7 +90,7 @@ export default function AnalyticsView({ users, matches, onRefresh }: AnalyticsVi
       successRate: Math.round(rate),
       ghostRatePercent: Math.round(ghostRate),
       rejectionRatePercent: Math.round(rejectionRate),
-      userCompleted,
+      completedSwaps: completed,
       userSwaps: userSwaps.slice(0, 4),
       ghostRank: ghostRank.slice(0, 4),
       rejectRank: rejectRank.slice(0, 4),
