@@ -1,0 +1,265 @@
+Create a secure admin REST API system for the CutPrice Telegram bot backend so the Vercel dashboard can display live data from MongoDB.
+
+━━━━━━━━━━━━━━━━━━
+GOAL
+━━━━━━━━━━━━━━━━━━
+
+The Vercel dashboard frontend is already live.
+
+Now connect the real Telegram bot backend data to the dashboard.
+
+Backend is running on Northflank.
+Database is MongoDB.
+
+We need secure admin API endpoints for:
+- login
+- dashboard stats
+- queue
+- active matches
+- completed matches
+- logs
+- users
+- punishments
+- cooldowns
+- bans
+
+━━━━━━━━━━━━━━━━━━
+TECH STACK
+━━━━━━━━━━━━━━━━━━
+
+Backend:
+- Node.js
+- Express
+- MongoDB
+- Existing Telegram bot system
+
+Frontend:
+- Vercel React dashboard
+
+━━━━━━━━━━━━━━━━━━
+ADMIN AUTH
+━━━━━━━━━━━━━━━━━━
+
+Create simple admin auth system first.
+
+Use:
+- ADMIN_PASSWORD from environment variable
+- JWT token authentication
+
+Flow:
+POST /api/admin/login
+
+Request:
+{
+  "password": "admin_password"
+}
+
+If valid:
+- generate JWT token
+- return:
+{
+  "success": true,
+  "token": "..."
+}
+
+If invalid:
+{
+  "success": false,
+  "message": "Invalid password"
+}
+
+━━━━━━━━━━━━━━━━━━
+MIDDLEWARE
+━━━━━━━━━━━━━━━━━━
+
+Create:
+- verifyAdminToken middleware
+
+Protect all admin routes except login.
+
+Authorization header:
+Bearer TOKEN
+
+━━━━━━━━━━━━━━━━━━
+API ENDPOINTS
+━━━━━━━━━━━━━━━━━━
+
+1. Dashboard Stats
+GET /api/admin/stats
+
+Return:
+- total users
+- users in queue
+- active matches
+- completed today
+- cooldown users
+- banned users
+- proofs pending
+- rejected proofs today
+
+━━━━━━━━━━━━━━━━━━
+
+2. Queue List
+GET /api/admin/queue
+
+Return:
+- telegram username
+- telegram ID
+- TikTok username
+- queue join time
+- ready status
+- waiting duration
+
+━━━━━━━━━━━━━━━━━━
+
+3. Active Matches
+GET /api/admin/matches
+
+Return:
+- matchId
+- user A info
+- user B info
+- ready states
+- proof states
+- timestamps
+- current status
+
+━━━━━━━━━━━━━━━━━━
+
+4. Match Logs
+GET /api/admin/logs
+
+Return latest events:
+- MATCH_CREATED
+- READY_TO_CUT
+- LINK_REVEALED
+- PROOF_SUBMITTED
+- PROOF_APPROVED
+- PROOF_REJECTED
+- MATCH_CANCELLED
+- USER_BANNED
+- COOLDOWN_APPLIED
+
+Include timestamps.
+
+━━━━━━━━━━━━━━━━━━
+
+5. Users List
+GET /api/admin/users
+
+Return:
+- telegram ID
+- username
+- TikTok username
+- completed swaps
+- cooldown count
+- rejection count
+- ban status
+- createdAt
+
+━━━━━━━━━━━━━━━━━━
+
+6. Punishments
+GET /api/admin/punishments
+
+Return:
+- cooldown users
+- banned users
+- reasons
+- expiry times
+
+━━━━━━━━━━━━━━━━━━
+
+7. Manual Ban
+POST /api/admin/ban
+
+Body:
+{
+  "telegramId": "...",
+  "reason": "..."
+}
+
+━━━━━━━━━━━━━━━━━━
+
+8. Manual Unban
+POST /api/admin/unban
+
+Body:
+{
+  "telegramId": "..."
+}
+
+━━━━━━━━━━━━━━━━━━
+
+9. Force Cancel Match
+POST /api/admin/cancel-match
+
+Body:
+{
+  "matchId": "..."
+}
+
+━━━━━━━━━━━━━━━━━━
+SECURITY
+━━━━━━━━━━━━━━━━━━
+
+- use helmet
+- use CORS whitelist for Vercel domain
+- rate limit login endpoint
+- never expose MongoDB internals
+- sanitize responses
+- validate request body
+- never expose passwords
+
+━━━━━━━━━━━━━━━━━━
+FRONTEND CONNECTION
+━━━━━━━━━━━━━━━━━━
+
+Return clean JSON for React dashboard.
+
+Example:
+{
+  "success": true,
+  "data": [...]
+}
+
+━━━━━━━━━━━━━━━━━━
+ENV VARIABLES
+━━━━━━━━━━━━━━━━━━
+
+Add:
+- ADMIN_PASSWORD
+- JWT_SECRET
+- DASHBOARD_URL
+
+━━━━━━━━━━━━━━━━━━
+STRUCTURE
+━━━━━━━━━━━━━━━━━━
+
+Create:
+- routes/admin.ts
+- middleware/adminAuth.ts
+- services/adminService.ts
+- utils/adminLogger.ts
+
+━━━━━━━━━━━━━━━━━━
+BONUS
+━━━━━━━━━━━━━━━━━━
+
+Add:
+- admin action logs
+- pagination
+- search users
+- filter banned users
+- filter active matches
+- recent activity feed
+
+━━━━━━━━━━━━━━━━━━
+FINAL TASK
+━━━━━━━━━━━━━━━━━━
+
+- Build project
+- Verify TypeScript errors
+- Verify all endpoints
+- Verify MongoDB queries
+- Commit and push GitHub main
