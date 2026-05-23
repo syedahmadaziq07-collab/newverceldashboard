@@ -28,8 +28,8 @@ export default function LogsView({ logs, loading, onRefresh }: LogsViewProps) {
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<"all" | LogCategory>("all");
 
-  const filteredLogs = logs.filter((l) => {
-    const matchesSearch = l.message.toLowerCase().includes(search.toLowerCase());
+  const filteredLogs = (logs ?? []).filter((l) => {
+    const matchesSearch = (l.message || "").toLowerCase().includes(search.toLowerCase());
     const matchesCategory = categoryFilter === "all" || l.category === categoryFilter;
     return matchesSearch && matchesCategory;
   });

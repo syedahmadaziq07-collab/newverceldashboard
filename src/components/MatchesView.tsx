@@ -35,8 +35,8 @@ export default function MatchesView({ matches, loading, onMatchAction, onRefresh
   const [selectedAuditMatch, setSelectedAuditMatch] = useState<Match | null>(null);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
-  // Filter strategy
-  const filteredMatches = matches.filter((m) => {
+  // Filter strategy — guard against undefined array
+  const filteredMatches = (matches ?? []).filter((m) => {
     if (filter === "active") return m.status === "active";
     if (filter === "completed") return m.status === "completed";
     if (filter === "cancelled") return m.status === "cancelled";
@@ -152,7 +152,7 @@ export default function MatchesView({ matches, loading, onMatchAction, onRefresh
               {/* Card Meta Row */}
               <div className="flex items-center justify-between pb-2 border-b border-[#1b253b]">
                 <span className="text-[10px] font-mono font-bold text-slate-450">
-                  REF: #{match.id.substring(match.id.length - 8)}
+                  REF: #{(match.id || "").slice(-8) || "—"}
                 </span>
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] text-slate-450 flex items-center gap-1 font-mono font-bold">

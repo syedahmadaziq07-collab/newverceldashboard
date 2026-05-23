@@ -31,17 +31,17 @@ export default function HistoryView({ matches, loading, onRefresh }: HistoryView
 
   // Filter & Search Logic
   const filteredMatches = useMemo(() => {
-    return matches.filter(m => {
-      // 1. Search Query
+    return (matches ?? []).filter(m => {
+      // 1. Search Query — guard against null/undefined backend fields
       const q = searchQuery.toLowerCase().trim();
       const matchesSearch = !q || 
-        m.id.toLowerCase().includes(q) ||
-        m.userAName.toLowerCase().includes(q) ||
-        m.userBName.toLowerCase().includes(q) ||
-        m.userATiktok.toLowerCase().includes(q) ||
-        m.userBTiktok.toLowerCase().includes(q) ||
-        (m.userALink && m.userALink.toLowerCase().includes(q)) ||
-        (m.userBLink && m.userBLink.toLowerCase().includes(q));
+        (m.id || "").toLowerCase().includes(q) ||
+        (m.userAName || "").toLowerCase().includes(q) ||
+        (m.userBName || "").toLowerCase().includes(q) ||
+        (m.userATiktok || "").toLowerCase().includes(q) ||
+        (m.userBTiktok || "").toLowerCase().includes(q) ||
+        (m.userALink || "").toLowerCase().includes(q) ||
+        (m.userBLink || "").toLowerCase().includes(q);
 
       if (!matchesSearch) return false;
 
@@ -70,21 +70,22 @@ export default function HistoryView({ matches, loading, onRefresh }: HistoryView
     });
   }, [matches, searchQuery, statusFilter, dateFilter]);
 
-  // Aggregate states
+  // Aggregate states — guard against undefined array
   const stats = useMemo(() => {
+    const safeMatches = matches ?? [];
     let completed = 0;
     let cancelled = 0;
     let timeouts = 0;
     let rejected = 0;
 
-    matches.forEach(m => {
+    safeMatches.forEach(m => {
       if (m.status === "completed") completed++;
       if (m.status === "cancelled") cancelled++;
       if (m.cancelReason === "timeout") timeouts++;
       if (m.approvalStatus === "rejected") rejected++;
     });
 
-    return { completed, cancelled, timeouts, rejected, total: matches.length };
+    return { completed, cancelled, timeouts, rejected, total: safeMatches.length };
   }, [matches]);
 
   const getStatusBadge = (m: Match) => {

@@ -161,10 +161,10 @@ export default function QueueView({ queues, loading, onQueueAction, onRefresh }:
                   <div className={`flex items-center justify-between ${staleItem ? "pt-2.5" : ""}`}>
                     <div className="space-y-0.5">
                       <h4 className="font-extrabold text-slate-205 text-sm tracking-tight leading-tight">
-                        {item.telegramName}
+                        {item.telegramName || "Unknown User"}
                       </h4>
                       <p className="text-[11px] text-slate-400 font-bold leading-none font-sans">
-                        TikTok: <span className="text-blue-400 font-mono font-bold">@{item.tiktokUsername}</span>
+                        TikTok: <span className="text-blue-400 font-mono font-bold">@{item.tiktokUsername || "—"}</span>
                       </p>
                     </div>
 

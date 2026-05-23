@@ -47,16 +47,17 @@ export default function BroadcastView({ users, onSendBroadcast }: BroadcastViewP
 
   const [lastAnnouncementStats, setLastAnnouncementStats] = useState<BroadcastStats | null>(null);
 
-  // Live client-side calculation of targets
+  // Live client-side calculation of targets — guard against null fields
+  const safeUsers = users ?? [];
   const getEstimatedCount = () => {
     if (targetScope === "tiktok_registered") {
-      return users.filter(u => u.tiktokUsername !== "").length;
+      return safeUsers.filter(u => (u.tiktokUsername || "") !== "").length;
     }
     if (targetScope === "active_only") {
       const now = new Date();
-      return users.filter(u => !u.banned && (!u.cooldownUntil || new Date(u.cooldownUntil) < now)).length;
+      return safeUsers.filter(u => !u.banned && (!u.cooldownUntil || new Date(u.cooldownUntil) < now)).length;
     }
-    return users.length;
+    return safeUsers.length;
   };
 
   const handleSend = async (e: FormEvent) => {
@@ -120,9 +121,9 @@ export default function BroadcastView({ users, onSendBroadcast }: BroadcastViewP
             </span>
             <div className="grid grid-cols-1 gap-2 text-xs font-sans">
               {([
-                { id: "all", label: "All Pressers (/start)", desc: `Reaches all starting accounts (${users.length} targets)` },
-                { id: "tiktok_registered", label: "Only Registered TikTok Profiles", desc: `Reaches accounts with valid /register (${users.filter(u => u.tiktokUsername !== "").length} targets)` },
-                { id: "active_only", label: "Only Active & Cooldown-free", desc: `Excludes banned profiles and active penalties (${users.filter(u => !u.banned && (!u.cooldownUntil || new Date(u.cooldownUntil) < new Date())).length} targets)` }
+                { id: "all", label: "All Pressers (/start)", desc: `Reaches all starting accounts (${safeUsers.length} targets)` },
+                { id: "tiktok_registered", label: "Only Registered TikTok Profiles", desc: `Reaches accounts with valid /register (${safeUsers.filter(u => (u.tiktokUsername || "") !== "").length} targets)` },
+                { id: "active_only", label: "Only Active & Cooldown-free", desc: `Excludes banned profiles and active penalties (${safeUsers.filter(u => !u.banned && (!u.cooldownUntil || new Date(u.cooldownUntil) < new Date())).length} targets)` }
               ] as const).map((scope) => (
                 <label
                   key={scope.id}

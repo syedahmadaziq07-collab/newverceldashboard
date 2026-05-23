@@ -55,35 +55,33 @@ export default function AnalyticsView({ users, matches, onRefresh }: AnalyticsVi
     { tenure: "Daily Active Swap Streak", rate: "38%" }
   ];
 
-  // Core metrics derived dynamically from dataset
+  // Core metrics derived dynamically from dataset — guard against undefined arrays
   const dynamicMetrics = useMemo(() => {
-    const totalExchanges = matches.length;
-    const completed = matches.filter(m => m.status === "completed").length;
-    const cancelled = matches.filter(m => m.status === "cancelled").length;
-    const ghosted = matches.filter(m => m.status === "cancelled" && m.proofStatus === "none").length;
-    const rejected = matches.filter(m => m.approvalStatus === "rejected").length;
+    const safeMatches = matches ?? [];
+    const safeUsers = users ?? [];
+
+    const totalExchanges = safeMatches.length;
+    const completed = safeMatches.filter(m => m.status === "completed").length;
+    const cancelled = safeMatches.filter(m => m.status === "cancelled").length;
+    const ghosted = safeMatches.filter(m => m.status === "cancelled" && m.proofStatus === "none").length;
+    const rejected = safeMatches.filter(m => m.approvalStatus === "rejected").length;
 
     const rate = totalExchanges > 0 ? ((completed / (completed + cancelled)) * 100) : 88;
     const ghostRate = cancelled > 0 ? (ghosted / cancelled) * 100 : 25;
     const rejectionRate = totalExchanges > 0 ? (rejected / totalExchanges) * 100 : 12;
 
     // Filter top active users
-    const userSwaps = users.map(u => {
-      // count matches involving user
-      const userMatches = matches.filter(m => m.userAId === u.id || m.userBId === u.id);
+    const userSwaps = safeUsers.map(u => {
+      const userMatches = safeMatches.filter(m => m.userAId === u.id || m.userBId === u.id);
       const totalCombined = userMatches.length;
       const userCompleted = userMatches.filter(m => m.status === "completed").length;
-      return {
-        ...u,
-        totalCombined,
-        userCompleted
-      };
+      return { ...u, totalCombined, userCompleted };
     }).sort((a, b) => b.totalCombined - a.totalCombined);
 
     // Filter top list of abuse tags
-    const ghostRank = [...users].sort((a, b) => (b.ghostCount || 0) - (a.ghostCount || 0));
-    const rejectRank = [...users].sort((a, b) => (b.rejectedProofCount || 0) - (a.rejectedProofCount || 0));
-    const strikesRank = [...users].filter(u => (u.inactivityStrikes || 0) > 0 || (u.warningsCount || 0) > 0)
+    const ghostRank = [...safeUsers].sort((a, b) => (b.ghostCount || 0) - (a.ghostCount || 0));
+    const rejectRank = [...safeUsers].sort((a, b) => (b.rejectedProofCount || 0) - (a.rejectedProofCount || 0));
+    const strikesRank = [...safeUsers].filter(u => (u.inactivityStrikes || 0) > 0 || (u.warningsCount || 0) > 0)
       .sort((a, b) => (b.warningsCount || 0) - (a.warningsCount || 0));
 
     return {

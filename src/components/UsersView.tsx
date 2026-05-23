@@ -41,13 +41,14 @@ export default function UsersView({ users, loading, onUserAction, onRefresh }: U
   const [savingStats, setSavingStats] = useState<boolean>(false);
 
   // Filter and search logic
-  const filteredUsers = users.filter((u) => {
-    // Search match
+  const filteredUsers = (users ?? []).filter((u) => {
+    // Search match — guard against null/undefined backend fields
+    const q = searchQuery.toLowerCase();
     const matchesSearch = 
-      u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      u.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      u.id.includes(searchQuery) ||
-      u.tiktokUsername.toLowerCase().includes(searchQuery.toLowerCase());
+      (u.name || "").toLowerCase().includes(q) ||
+      (u.username || "").toLowerCase().includes(q) ||
+      (u.id || "").includes(searchQuery) ||
+      (u.tiktokUsername || "").toLowerCase().includes(q);
 
     if (!matchesSearch) return false;
 
