@@ -9,7 +9,9 @@ export interface IUser extends Document {
   state: "idle" | "queued" | "matched" | "verifying_proof";
   banned: boolean;
   banReason?: string;
+  blockedAt: Date | null;
   cooldownUntil: Date | null;
+  cooldownReason: string | null;
   joinedTime: Date;
   lastActive: Date;
   warningsCount: number;
@@ -35,7 +37,9 @@ const UserSchema = new Schema<IUser>(
     },
     banned: { type: Boolean, default: false },
     banReason: { type: String },
+    blockedAt: { type: Date, default: null },
     cooldownUntil: { type: Date, default: null },
+    cooldownReason: { type: String, default: null },
     joinedTime: { type: Date, default: Date.now },
     lastActive: { type: Date, default: Date.now },
     warningsCount: { type: Number, default: 0 },

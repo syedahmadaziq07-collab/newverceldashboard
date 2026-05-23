@@ -201,6 +201,55 @@ router.post("/users/action", async (req: AdminRequest, res: Response): Promise<v
   }
 });
 
+// ─── USER BLOCK / UNBLOCK / COOLDOWN (dedicated REST endpoints) ───────────────
+
+router.post("/users/:id/block", async (req: AdminRequest, res: Response): Promise<void> => {
+  const telegramId = String(req.params.id);
+  const { reason } = req.body;
+  try {
+    const ok = await svc.blockUser(telegramId, reason || "Blocked by admin");
+    if (!ok) { res.status(404).json({ success: false, message: "User not found." }); return; }
+    res.json({ success: true, data: { telegramId, blocked: true } });
+  } catch {
+    res.status(500).json({ success: false, message: "Block failed." });
+  }
+});
+
+router.post("/users/:id/unblock", async (req: AdminRequest, res: Response): Promise<void> => {
+  const telegramId = String(req.params.id);
+  try {
+    const ok = await svc.unblockUser(telegramId);
+    if (!ok) { res.status(404).json({ success: false, message: "User not found." }); return; }
+    res.json({ success: true, data: { telegramId, blocked: false } });
+  } catch {
+    res.status(500).json({ success: false, message: "Unblock failed." });
+  }
+});
+
+router.post("/users/:id/cooldown", async (req: AdminRequest, res: Response): Promise<void> => {
+  const telegramId = String(req.params.id);
+  const { hours, reason } = req.body;
+  const cooldownHours = typeof hours === "number" && hours > 0 ? hours : 24;
+  try {
+    const ok = await svc.applyUserCooldown(telegramId, cooldownHours, reason || "Admin cooldown");
+    if (!ok) { res.status(404).json({ success: false, message: "User not found." }); return; }
+    res.json({ success: true, data: { telegramId, cooldownHours } });
+  } catch {
+    res.status(500).json({ success: false, message: "Cooldown apply failed." });
+  }
+});
+
+router.post("/users/:id/remove-cooldown", async (req: AdminRequest, res: Response): Promise<void> => {
+  const telegramId = String(req.params.id);
+  try {
+    const ok = await svc.removeUserCooldown(telegramId);
+    if (!ok) { res.status(404).json({ success: false, message: "User not found." }); return; }
+    res.json({ success: true, data: { telegramId, cooldownRemoved: true } });
+  } catch {
+    res.status(500).json({ success: false, message: "Remove cooldown failed." });
+  }
+});
+
 // ─── BAN / UNBAN ─────────────────────────────────────────────────────────────
 
 router.post("/ban", async (req: AdminRequest, res: Response): Promise<void> => {

@@ -6,7 +6,11 @@ export interface User {
   remainingCuts: number;
   state: 'idle' | 'queued' | 'matched' | 'verifying_proof';
   banned: boolean;
+  isBlocked?: boolean; // alias for banned, returned by new block endpoints
+  banReason?: string | null;
+  blockedAt?: string | null;
   cooldownUntil: string | null; // ISO Date String or null
+  cooldownReason?: string | null;
   joinedTime: string;
   lastActive: string;
   warningsCount?: number;

@@ -16,10 +16,13 @@ import {
   Flame,
   ShieldAlert,
   Sliders,
-  Check
+  Check,
+  ShieldOff,
+  TimerOff
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { User } from "../types";
+import { api } from "../lib/api";
 
 interface UsersViewProps {
   users: User[];
@@ -77,13 +80,10 @@ export default function UsersView({ users, loading, onUserAction, onRefresh }: U
     setActionLoadingId(`${userId}_${action}`);
     try {
       await onUserAction(userId, action, payload);
-      
-      // Sync selectedUser if modal is open
-      const updatedList = users; // App component propagates this, fallback calculation allows seamless updates
       if (selectedUser && selectedUser.id === userId) {
         const copy = { ...selectedUser };
-        if (action === "ban") { copy.banned = true; copy.state = "idle"; }
-        if (action === "unban") { copy.banned = false; }
+        if (action === "ban") { copy.banned = true; copy.isBlocked = true; copy.state = "idle"; }
+        if (action === "unban") { copy.banned = false; copy.isBlocked = false; }
         if (action === "clear_cooldown") { copy.cooldownUntil = null; }
         if (action === "cooldown_24h") { copy.cooldownUntil = new Date(Date.now() + 24*60*60*1000).toISOString(); copy.state = "idle"; }
         if (action === "reset_cuts") { copy.remainingCuts = 3; }
@@ -98,6 +98,34 @@ export default function UsersView({ users, loading, onUserAction, onRefresh }: U
       }
     } catch (err) {
       console.error(err);
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const handleDirectAction = async (
+    userId: string,
+    endpoint: "block" | "unblock" | "cooldown" | "remove-cooldown",
+    confirmMsg: string,
+    body?: Record<string, unknown>
+  ) => {
+    if (!window.confirm(confirmMsg)) return;
+    const key = `${userId}_${endpoint}`;
+    setActionLoadingId(key);
+    try {
+      await api.post(`/api/admin/users/${userId}/${endpoint}`, body ?? {});
+      onRefresh();
+      if (selectedUser && selectedUser.id === userId) {
+        const copy = { ...selectedUser };
+        if (endpoint === "block") { copy.banned = true; copy.isBlocked = true; copy.state = "idle"; }
+        if (endpoint === "unblock") { copy.banned = false; copy.isBlocked = false; }
+        if (endpoint === "cooldown") { copy.cooldownUntil = new Date(Date.now() + 24*60*60*1000).toISOString(); copy.state = "idle"; }
+        if (endpoint === "remove-cooldown") { copy.cooldownUntil = null; copy.cooldownReason = null; }
+        setSelectedUser(copy);
+      }
+    } catch (err: any) {
+      alert(err?.message ?? `Action "${endpoint}" failed.`);
+      console.error(`[${endpoint}]`, err);
     } finally {
       setActionLoadingId(null);
     }
@@ -127,10 +155,10 @@ export default function UsersView({ users, loading, onUserAction, onRefresh }: U
   };
 
   const getStatusPill = (user: User) => {
-    if (user.banned) {
+    if (user.banned || user.isBlocked) {
       return (
         <span className="px-2.5 py-1 bg-red-950/40 text-rose-400 border border-red-900/45 rounded-lg text-[9px] font-extrabold uppercase tracking-widest flex items-center gap-1">
-          <Ban className="w-3 h-3" /> BANNED
+          <Ban className="w-3 h-3" /> BLOCKED
         </span>
       );
     }
@@ -139,7 +167,7 @@ export default function UsersView({ users, loading, onUserAction, onRefresh }: U
     if (user.cooldownUntil && new Date(user.cooldownUntil) > now) {
       return (
         <span className="px-2.5 py-1 bg-amber-950/45 text-amber-400 border border-amber-900/40 rounded-lg text-[9px] font-extrabold uppercase tracking-widest flex items-center gap-1">
-          <Clock className="w-3 h-3" /> TIMEOUT
+          <Clock className="w-3 h-3" /> COOLDOWN
         </span>
       );
     }
@@ -330,57 +358,83 @@ export default function UsersView({ users, loading, onUserAction, onRefresh }: U
                   </div>
 
                   {/* Operational Controls panel */}
-                  <div className="flex items-center justify-between pt-1 gap-1.5 flex-wrap">
-                    <button
-                      onClick={() => openUserModal(user)}
-                      className="flex-1 min-w-[70px] bg-[#161f35] active:bg-[#202c4b] text-slate-300 border border-[#233154] py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 cursor-pointer"
-                    >
-                      <Info className="w-3.5 h-3.5" /> Details
-                    </button>
+                  <div className="space-y-1.5 pt-1">
+                    {/* Row 1: Details + Warn */}
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => openUserModal(user)}
+                        className="flex-1 bg-[#161f35] active:bg-[#202c4b] text-slate-300 border border-[#233154] py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 cursor-pointer"
+                      >
+                        <Info className="w-3.5 h-3.5" /> Details
+                      </button>
 
-                    <button
-                      onClick={() => handleAction(user.id, "warn")}
-                      disabled={actionLoadingId === `${user.id}_warn`}
-                      className="flex-1 min-w-[70px] bg-amber-950/40 hover:bg-amber-900/40 text-amber-400 border border-amber-900/40 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 cursor-pointer"
-                    >
-                      {actionLoadingId === `${user.id}_warn` ? (
-                        <div className="w-3.5 h-3.5 border-2 border-amber-400/30 border-t-amber-400 rounded-full animate-spin" />
+                      <button
+                        onClick={() => handleAction(user.id, "warn")}
+                        disabled={actionLoadingId === `${user.id}_warn`}
+                        className="flex-1 bg-amber-950/40 hover:bg-amber-900/40 text-amber-400 border border-amber-900/40 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 cursor-pointer disabled:opacity-40"
+                      >
+                        {actionLoadingId === `${user.id}_warn` ? (
+                          <div className="w-3.5 h-3.5 border-2 border-amber-400/30 border-t-amber-400 rounded-full animate-spin" />
+                        ) : (
+                          <><AlertCircle className="w-3.5 h-3.5" /> Warn ({warnings})</>
+                        )}
+                      </button>
+                    </div>
+
+                    {/* Row 2: Block/Unblock + Cooldown/Remove Cooldown */}
+                    <div className="flex items-center gap-1.5">
+                      {(user.banned || user.isBlocked) ? (
+                        <button
+                          onClick={() => handleDirectAction(user.id, "unblock", `Unblock ${user.name}?`)}
+                          disabled={actionLoadingId === `${user.id}_unblock`}
+                          className="flex-1 bg-emerald-950/40 active:bg-emerald-900/40 text-emerald-400 border border-emerald-900/40 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 cursor-pointer disabled:opacity-40"
+                        >
+                          {actionLoadingId === `${user.id}_unblock` ? (
+                            <div className="w-3.5 h-3.5 border-2 border-emerald-600/30 border-t-emerald-400 rounded-full animate-spin" />
+                          ) : (
+                            <><Unlock className="w-3.5 h-3.5" /> Unblock</>
+                          )}
+                        </button>
                       ) : (
-                        <>
-                          <AlertCircle className="w-3.5 h-3.5" /> Warn ({warnings})
-                        </>
+                        <button
+                          onClick={() => handleDirectAction(user.id, "block", `Block ${user.name}?`, { reason: "Blocked by admin" })}
+                          disabled={actionLoadingId === `${user.id}_block`}
+                          className="flex-1 bg-[#241217] active:bg-rose-950 text-rose-400 border border-rose-900/35 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 cursor-pointer disabled:opacity-40"
+                        >
+                          {actionLoadingId === `${user.id}_block` ? (
+                            <div className="w-3.5 h-3.5 border-2 border-red-600/30 border-t-red-500 rounded-full animate-spin" />
+                          ) : (
+                            <><UserMinus className="w-3.5 h-3.5" /> Block</>
+                          )}
+                        </button>
                       )}
-                    </button>
 
-                    {user.banned ? (
-                      <button
-                        onClick={() => handleAction(user.id, "unban")}
-                        disabled={actionLoadingId === `${user.id}_unban`}
-                        className="flex-grow bg-emerald-950/40 active:bg-emerald-900/40 text-[#10b981] border border-emerald-900/40 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 cursor-pointer"
-                      >
-                        {actionLoadingId === `${user.id}_unban` ? (
-                          <div className="w-3.5 h-3.5 border-2 border-emerald-600/30 border-t-emerald-450 rounded-full animate-spin" />
-                        ) : (
-                          <>
-                            <Unlock className="w-3.5 h-3.5" /> Unban
-                          </>
-                        )}
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => handleAction(user.id, "ban")}
-                        disabled={actionLoadingId === `${user.id}_ban`}
-                        className="flex-grow bg-[#241217] active:bg-rose-950 text-rose-400 border border-rose-900/35 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 cursor-pointer"
-                      >
-                        {actionLoadingId === `${user.id}_ban` ? (
-                          <div className="w-3.5 h-3.5 border-2 border-red-600/30 border-t-red-500 rounded-full animate-spin" />
-                        ) : (
-                          <>
-                            <UserMinus className="w-3.5 h-3.5" /> Ban
-                          </>
-                        )}
-                      </button>
-                    )}
+                      {(user.cooldownUntil && new Date(user.cooldownUntil) > new Date()) ? (
+                        <button
+                          onClick={() => handleDirectAction(user.id, "remove-cooldown", `Remove cooldown for ${user.name}?`)}
+                          disabled={actionLoadingId === `${user.id}_remove-cooldown`}
+                          className="flex-1 bg-sky-950/40 active:bg-sky-900/40 text-sky-400 border border-sky-900/35 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 cursor-pointer disabled:opacity-40"
+                        >
+                          {actionLoadingId === `${user.id}_remove-cooldown` ? (
+                            <div className="w-3.5 h-3.5 border-2 border-sky-600/30 border-t-sky-400 rounded-full animate-spin" />
+                          ) : (
+                            <><TimerOff className="w-3.5 h-3.5" /> Remove CD</>
+                          )}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleDirectAction(user.id, "cooldown", `Apply 24h cooldown to ${user.name}?`, { hours: 24, reason: "Admin cooldown" })}
+                          disabled={actionLoadingId === `${user.id}_cooldown`}
+                          className="flex-1 bg-[#241a12] active:bg-amber-950/60 text-amber-500 border border-amber-900/35 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 cursor-pointer disabled:opacity-40"
+                        >
+                          {actionLoadingId === `${user.id}_cooldown` ? (
+                            <div className="w-3.5 h-3.5 border-2 border-amber-600/30 border-t-amber-500 rounded-full animate-spin" />
+                          ) : (
+                            <><Clock className="w-3.5 h-3.5" /> Cooldown 24h</>
+                          )}
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </motion.div>
               );
@@ -532,13 +586,31 @@ export default function UsersView({ users, loading, onUserAction, onRefresh }: U
                 </span>
                 
                 <div className="grid grid-cols-2 gap-2.5">
-                  <button
-                    onClick={() => handleAction(selectedUser.id, "cooldown_24h")}
-                    disabled={actionLoadingId === `${selectedUser.id}_cooldown_24h`}
-                    className="p-3 bg-[#241a12] text-amber-500 hover:bg-[#342417] border border-amber-900/35 rounded-xl font-bold text-[11px] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40"
-                  >
-                    <Clock className="w-3.5 h-3.5" /> 24hr Cooldown Penalty
-                  </button>
+                  {(selectedUser.cooldownUntil && new Date(selectedUser.cooldownUntil) > new Date()) ? (
+                    <button
+                      onClick={() => handleDirectAction(selectedUser.id, "remove-cooldown", `Remove cooldown for ${selectedUser.name}?`)}
+                      disabled={actionLoadingId === `${selectedUser.id}_remove-cooldown`}
+                      className="p-3 bg-sky-950/40 text-sky-400 hover:bg-sky-900/40 border border-sky-900/35 rounded-xl font-bold text-[11px] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40"
+                    >
+                      {actionLoadingId === `${selectedUser.id}_remove-cooldown` ? (
+                        <div className="w-3.5 h-3.5 border-2 border-sky-600/30 border-t-sky-400 rounded-full animate-spin" />
+                      ) : (
+                        <><TimerOff className="w-3.5 h-3.5" /> Remove Cooldown</>
+                      )}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleDirectAction(selectedUser.id, "cooldown", `Apply 24h cooldown to ${selectedUser.name}?`, { hours: 24, reason: "Admin cooldown" })}
+                      disabled={actionLoadingId === `${selectedUser.id}_cooldown`}
+                      className="p-3 bg-[#241a12] text-amber-500 hover:bg-[#342417] border border-amber-900/35 rounded-xl font-bold text-[11px] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40"
+                    >
+                      {actionLoadingId === `${selectedUser.id}_cooldown` ? (
+                        <div className="w-3.5 h-3.5 border-2 border-amber-600/30 border-t-amber-500 rounded-full animate-spin" />
+                      ) : (
+                        <><Clock className="w-3.5 h-3.5" /> 24hr Cooldown Penalty</>
+                      )}
+                    </button>
+                  )}
 
                   <button
                     onClick={() => handleAction(selectedUser.id, "reset_state")}

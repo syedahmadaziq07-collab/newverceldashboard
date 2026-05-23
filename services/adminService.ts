@@ -207,7 +207,90 @@ export async function getUsers(
       .lean(),
     User.countDocuments(filter),
   ]);
-  return { data: items, total, page, pages: Math.ceil(total / limit) };
+
+  // Map DB fields to frontend User type (telegramId → id, add isBlocked alias)
+  const data = items.map((u) => ({
+    id: u.telegramId,
+    name: u.name,
+    username: u.username || "",
+    tiktokUsername: u.tiktokUsername || "",
+    remainingCuts: u.remainingCuts,
+    state: u.state,
+    banned: u.banned,
+    isBlocked: u.banned,
+    banReason: u.banReason ?? null,
+    blockedAt: u.blockedAt ? u.blockedAt.toISOString() : null,
+    cooldownUntil: u.cooldownUntil ? u.cooldownUntil.toISOString() : null,
+    cooldownReason: u.cooldownReason ?? null,
+    joinedTime: u.joinedTime?.toISOString?.() ?? new Date().toISOString(),
+    lastActive: u.lastActive?.toISOString?.() ?? new Date().toISOString(),
+    warningsCount: u.warningsCount,
+    inactivityStrikes: u.inactivityStrikes,
+    ghostCount: u.ghostCount,
+    matchedCancelCount: u.matchedCancelCount,
+    rejectedProofCount: u.rejectedProofCount,
+    isSuspicious: u.isSuspicious,
+    completedSwaps: u.completedSwaps,
+  }));
+
+  return { data, total, page, pages: Math.ceil(total / limit) };
+}
+
+export async function blockUser(telegramId: string, reason: string): Promise<boolean> {
+  const user = await User.findOne({ telegramId });
+  if (!user) return false;
+
+  user.banned = true;
+  user.banReason = reason;
+  (user as any).blockedAt = new Date();
+  user.state = "idle";
+  await user.save();
+
+  await QueueItem.deleteOne({ telegramId });
+  await addLog("ban", `Admin BLOCKED user ${user.name} (${telegramId}). Reason: ${reason}`, telegramId);
+  await addNotification("ban", "USER_BLOCKED", `Admin blocked ${user.name} (@${user.username || telegramId}). Reason: ${reason}`);
+  return true;
+}
+
+export async function unblockUser(telegramId: string): Promise<boolean> {
+  const user = await User.findOne({ telegramId });
+  if (!user) return false;
+
+  user.banned = false;
+  user.banReason = undefined;
+  (user as any).blockedAt = null;
+  await user.save();
+
+  await addLog("ban", `Admin UNBLOCKED user ${user.name} (${telegramId})`, telegramId);
+  return true;
+}
+
+export async function applyUserCooldown(telegramId: string, hours: number, reason: string): Promise<boolean> {
+  const user = await User.findOne({ telegramId });
+  if (!user) return false;
+
+  const cooldownUntil = new Date(Date.now() + hours * 60 * 60 * 1000);
+  user.cooldownUntil = cooldownUntil;
+  (user as any).cooldownReason = reason;
+  user.state = "idle";
+  await user.save();
+
+  await QueueItem.deleteOne({ telegramId });
+  await addLog("cooldown", `Admin applied ${hours}h cooldown to ${user.name}. Reason: ${reason}`, telegramId);
+  await addNotification("cooldown", "USER_COOLDOWN_APPLIED", `${user.name} placed on ${hours}h cooldown. Reason: ${reason}`);
+  return true;
+}
+
+export async function removeUserCooldown(telegramId: string): Promise<boolean> {
+  const user = await User.findOne({ telegramId });
+  if (!user) return false;
+
+  user.cooldownUntil = null;
+  (user as any).cooldownReason = null;
+  await user.save();
+
+  await addLog("cooldown", `Admin removed cooldown from ${user.name} (${telegramId})`, telegramId);
+  return true;
 }
 
 export async function banUser(telegramId: string, reason: string): Promise<boolean> {

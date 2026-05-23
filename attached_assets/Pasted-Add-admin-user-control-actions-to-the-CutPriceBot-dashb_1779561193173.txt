@@ -1,0 +1,106 @@
+Add admin user control actions to the CutPriceBot dashboard.
+
+Goal:
+In the dashboard Users tab, admin must be able to:
+- Block user
+- Unblock user
+- Apply cooldown
+- Remove cooldown
+
+Backend and frontend must both be updated.
+
+━━━━━━━━━━━━━━━━━━
+BACKEND API
+━━━━━━━━━━━━━━━━━━
+
+Add protected admin endpoints:
+
+POST /api/admin/users/:id/block
+Body:
+{
+  "reason": "Admin blocked user"
+}
+
+POST /api/admin/users/:id/unblock
+
+POST /api/admin/users/:id/cooldown
+Body:
+{
+  "hours": 24,
+  "reason": "Admin cooldown"
+}
+
+POST /api/admin/users/:id/remove-cooldown
+
+Rules:
+- Use verifyAdminToken middleware.
+- Return clean JSON:
+{
+  "success": true,
+  "data": ...
+}
+
+Update MongoDB user fields if missing:
+- isBlocked: boolean
+- blockedReason: string | null
+- blockedAt: Date | null
+- cooldownUntil: Date | null
+- cooldownReason: string | null
+
+Also create admin log events:
+- USER_BLOCKED
+- USER_UNBLOCKED
+- USER_COOLDOWN_APPLIED
+- USER_COOLDOWN_REMOVED
+
+━━━━━━━━━━━━━━━━━━
+FRONTEND DASHBOARD
+━━━━━━━━━━━━━━━━━━
+
+Update UsersView.
+
+For every user card/list row, show status badges:
+- BLOCKED if user.isBlocked
+- COOLDOWN if cooldownUntil is in the future
+- ACTIVE if none
+
+Add buttons:
+- Block
+- Unblock
+- Cooldown 24h
+- Remove Cooldown
+
+Button rules:
+- If user is blocked, show Unblock instead of Block.
+- If user has active cooldown, show Remove Cooldown.
+- If no cooldown, show Cooldown 24h.
+
+When admin clicks a button:
+- show confirm()
+- call API using src/lib/api.ts
+- use Bearer token automatically
+- refetch users after success
+- show success/error message
+
+━━━━━━━━━━━━━━━━━━
+BOT LOGIC SAFETY
+━━━━━━━━━━━━━━━━━━
+
+If this repo contains bot/matchmaking logic, enforce:
+- blocked users cannot use matchmaking
+- cooldown users cannot enter queue/send link until cooldownUntil expires
+
+If bot logic is not in this repo, only update API/dashboard and clearly mention bot enforcement must be added in the Telegram bot repo.
+
+━━━━━━━━━━━━━━━━━━
+VERIFY
+━━━━━━━━━━━━━━━━━━
+
+Run:
+npm ci
+npx tsc --noEmit
+npm run build
+
+Fix all TypeScript errors.
+
+Commit and push to GitHub main.
