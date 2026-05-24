@@ -5,7 +5,7 @@ export interface IQueueItem extends Document {
   telegramUsername: string;
   telegramName: string;
   tiktokUsername: string;
-  submittedLink: string;
+  pendingLink: string;
   isReady: boolean;
   queuedAt: Date;
 }
@@ -16,7 +16,7 @@ const QueueItemSchema = new Schema<IQueueItem>(
     telegramUsername: { type: String, default: "" },
     telegramName: { type: String, required: true },
     tiktokUsername: { type: String, default: "" },
-    submittedLink: { type: String, required: true },
+    pendingLink: { type: String, required: true },
     isReady: { type: Boolean, default: true },
     queuedAt: { type: Date, default: Date.now, index: true },
   },

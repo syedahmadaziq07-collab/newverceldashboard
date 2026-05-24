@@ -34,9 +34,9 @@ export async function getDashboardStats() {
     Match.countDocuments({ status: "active" }),
     Match.countDocuments({ status: "completed", completedTime: { $gte: startOfDay } }),
     Match.countDocuments({ status: "cancelled", completedTime: { $gte: startOfDay } }),
-    User.countDocuments({ banned: true }),
-    User.countDocuments({ cooldownUntil: { $gt: now } }),
-    User.countDocuments({ lastActive: { $gte: fifteenMinutesAgo }, banned: false }),
+    User.countDocuments({ isBanned: true }),
+    User.countDocuments({ cancelCooldownUntil: { $gt: now } }),
+    User.countDocuments({ updatedAt: { $gte: fifteenMinutesAgo }, isBanned: false }),
     Match.countDocuments({ status: "cancelled", proofStatus: "none", completedTime: { $gte: startOfDay } }),
     Match.countDocuments({ status: "active", proofStatus: { $in: ["submitted_a", "submitted_b", "submitted_both"] } }),
     Match.countDocuments({ approvalStatus: "rejected", completedTime: { $gte: startOfDay } }),
@@ -81,7 +81,7 @@ export async function getQueue(page = 1, limit = 50) {
     telegramUsername: q.telegramUsername,
     telegramName: q.telegramName,
     tiktokUsername: q.tiktokUsername,
-    submittedLink: q.submittedLink,
+    submittedLink: q.pendingLink,
     isReady: q.isReady,
     queuedAt: q.queuedAt instanceof Date ? q.queuedAt.toISOString() : String(q.queuedAt),
     waitingMinutes: Math.floor((now - new Date(q.queuedAt).getTime()) / 60000),
@@ -100,43 +100,42 @@ export async function getMatches(
   const filter: Record<string, unknown> = {};
   if (status) filter.status = status;
   const [items, total] = await Promise.all([
-    Match.find(filter).sort({ startedTime: -1 }).skip(skip).limit(limit).lean(),
+    Match.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
     Match.countDocuments(filter),
   ]);
   const data = items.map((m) => ({
-    id: m.matchId,
-    userAId: m.userA.telegramId,
-    userAName: m.userA.name,
-    userATiktok: m.userA.tiktokUsername,
-    userALink: m.userA.link,
-    userBId: m.userB.telegramId,
-    userBName: m.userB.name,
-    userBTiktok: m.userB.tiktokUsername,
-    userBLink: m.userB.link,
+    id: (m._id as any).toString(),
+    userAId: m.user1Id,
+    userAName: "",
+    userATiktok: "",
+    userALink: m.link1,
+    userBId: m.user2Id,
+    userBName: "",
+    userBTiktok: "",
+    userBLink: m.link2,
     status: m.status,
     proofStatus: m.proofStatus,
     approvalStatus: m.approvalStatus,
     cancelReason: m.cancelReason ?? null,
-    startedTime: m.startedTime instanceof Date ? m.startedTime.toISOString() : String(m.startedTime),
-    completedTime: m.completedTime instanceof Date ? m.completedTime.toISOString() : null,
-    proofImageUrl: m.userA.proofImageUrl || m.userB.proofImageUrl || undefined,
+    startedTime: m.createdAt instanceof Date ? m.createdAt.toISOString() : String(m.createdAt),
+    completedTime: m.updatedAt instanceof Date ? m.updatedAt.toISOString() : null,
+    proofImageUrl: undefined,
     auditLoggerNote: m.auditNote,
   }));
   return { data, total, page, pages: Math.ceil(total / limit) };
 }
 
 export async function cancelMatch(matchId: string): Promise<boolean> {
-  const match = await Match.findOne({ matchId });
+  const match = await Match.findById(matchId);
   if (!match) return false;
 
   match.status = "cancelled";
   match.cancelReason = "manual";
-  match.completedTime = new Date();
   match.approvalStatus = "rejected";
   await match.save();
 
   await User.updateMany(
-    { telegramId: { $in: [match.userA.telegramId, match.userB.telegramId] } },
+    { telegramId: { $in: [match.user1Id, match.user2Id] } },
     { $set: { state: "idle" } }
   );
 
@@ -154,28 +153,26 @@ export async function auditProof(
   verdict: "approve" | "reject",
   cooldownHours = 12
 ): Promise<boolean> {
-  const match = await Match.findOne({ matchId });
+  const match = await Match.findById(matchId);
   if (!match) return false;
 
   if (verdict === "approve") {
     match.status = "completed";
     match.approvalStatus = "approved";
-    match.completedTime = new Date();
     await match.save();
     await User.updateMany(
-      { telegramId: { $in: [match.userA.telegramId, match.userB.telegramId] } },
+      { telegramId: { $in: [match.user1Id, match.user2Id] } },
       { $set: { state: "idle" }, $inc: { completedSwaps: 1 } }
     );
     await addLog("proof", `Proof approved for match ${matchId}.`, undefined, matchId);
   } else {
     match.status = "cancelled";
     match.approvalStatus = "rejected";
-    match.completedTime = new Date();
     await match.save();
-    const cooldownUntil = new Date(Date.now() + cooldownHours * 60 * 60 * 1000);
+    const cancelCooldownUntil = new Date(Date.now() + cooldownHours * 60 * 60 * 1000);
     await User.updateMany(
-      { telegramId: { $in: [match.userA.telegramId, match.userB.telegramId] } },
-      { $set: { state: "idle", cooldownUntil } }
+      { telegramId: { $in: [match.user1Id, match.user2Id] } },
+      { $set: { state: "idle", cancelCooldownUntil } }
     );
     await addLog("proof", `Proof rejected for match ${matchId}. Cooldown applied.`, undefined, matchId);
   }
@@ -215,7 +212,7 @@ export async function getUsers(
 ) {
   const skip = (page - 1) * limit;
   const filter: Record<string, unknown> = {};
-  if (bannedOnly) filter.banned = true;
+  if (bannedOnly) filter.isBanned = true;
   if (search) {
     filter.$or = [
       { name: { $regex: search, $options: "i" } },
@@ -226,7 +223,7 @@ export async function getUsers(
   }
   const [items, total] = await Promise.all([
     User.find(filter)
-      .sort({ joinedTime: -1 })
+      .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .select("-__v")
@@ -242,15 +239,15 @@ export async function getUsers(
     tiktokUsername: u.tiktokUsername || "",
     remainingCuts: u.remainingCuts,
     state: u.state,
-    banned: u.banned,
-    isBlocked: u.banned,
+    banned: u.isBanned,
+    isBlocked: u.isBanned,
     banReason: u.banReason ?? null,
     blockedAt: u.blockedAt ? u.blockedAt.toISOString() : null,
-    cooldownUntil: u.cooldownUntil ? u.cooldownUntil.toISOString() : null,
+    cooldownUntil: u.cancelCooldownUntil ? u.cancelCooldownUntil.toISOString() : null,
     cooldownReason: u.cooldownReason ?? null,
     joinedTime: u.joinedTime?.toISOString?.() ?? new Date().toISOString(),
-    lastActive: u.lastActive?.toISOString?.() ?? new Date().toISOString(),
-    warningsCount: u.warningsCount,
+    lastActive: (u as any).updatedAt?.toISOString?.() ?? new Date().toISOString(),
+    warningsCount: u.strikes,
     inactivityStrikes: u.inactivityStrikes,
     ghostCount: u.ghostCount,
     matchedCancelCount: u.matchedCancelCount,
@@ -266,7 +263,7 @@ export async function blockUser(telegramId: string, reason: string): Promise<boo
   const user = await User.findOne({ telegramId });
   if (!user) return false;
 
-  user.banned = true;
+  user.isBanned = true;
   user.banReason = reason;
   (user as any).blockedAt = new Date();
   user.state = "idle";
@@ -282,7 +279,7 @@ export async function unblockUser(telegramId: string): Promise<boolean> {
   const user = await User.findOne({ telegramId });
   if (!user) return false;
 
-  user.banned = false;
+  user.isBanned = false;
   user.banReason = undefined;
   (user as any).blockedAt = null;
   await user.save();
@@ -295,8 +292,8 @@ export async function applyUserCooldown(telegramId: string, hours: number, reaso
   const user = await User.findOne({ telegramId });
   if (!user) return false;
 
-  const cooldownUntil = new Date(Date.now() + hours * 60 * 60 * 1000);
-  user.cooldownUntil = cooldownUntil;
+  const cancelCooldownUntil = new Date(Date.now() + hours * 60 * 60 * 1000);
+  user.cancelCooldownUntil = cancelCooldownUntil;
   (user as any).cooldownReason = reason;
   user.state = "idle";
   await user.save();
@@ -311,7 +308,7 @@ export async function removeUserCooldown(telegramId: string): Promise<boolean> {
   const user = await User.findOne({ telegramId });
   if (!user) return false;
 
-  user.cooldownUntil = null;
+  user.cancelCooldownUntil = null;
   (user as any).cooldownReason = null;
   await user.save();
 
@@ -323,7 +320,7 @@ export async function banUser(telegramId: string, reason: string): Promise<boole
   const user = await User.findOne({ telegramId });
   if (!user) return false;
 
-  user.banned = true;
+  user.isBanned = true;
   user.banReason = reason;
   user.state = "idle";
   await user.save();
@@ -338,7 +335,7 @@ export async function unbanUser(telegramId: string): Promise<boolean> {
   const user = await User.findOne({ telegramId });
   if (!user) return false;
 
-  user.banned = false;
+  user.isBanned = false;
   user.banReason = undefined;
   await user.save();
 
@@ -365,7 +362,7 @@ export async function performUserAction(
       break;
 
     case "ban":
-      user.banned = true;
+      user.isBanned = true;
       user.banReason = (payload?.reason as string) || "Manual ban by admin";
       user.state = "idle";
       await QueueItem.deleteOne({ telegramId });
@@ -374,19 +371,19 @@ export async function performUserAction(
       break;
 
     case "unban":
-      user.banned = false;
+      user.isBanned = false;
       user.banReason = undefined;
       await addLog("ban", `Admin unbanned ${user.name}`, telegramId);
       break;
 
     case "clear_cooldown":
-      user.cooldownUntil = null;
+      user.cancelCooldownUntil = null;
       await addLog("cooldown", `Cleared cooldown for ${user.name}`, telegramId);
       break;
 
     case "cooldown_24h": {
       const until = new Date(Date.now() + 24 * 60 * 60 * 1000);
-      user.cooldownUntil = until;
+      user.cancelCooldownUntil = until;
       user.state = "idle";
       await QueueItem.deleteOne({ telegramId });
       await addLog("cooldown", `Applied 24h cooldown to ${user.name}`, telegramId);
@@ -395,14 +392,14 @@ export async function performUserAction(
     }
 
     case "warn":
-      user.warningsCount = (user.warningsCount || 0) + 1;
-      await addLog("user", `Warned ${user.name}. Total: ${user.warningsCount}`, telegramId);
-      if (user.warningsCount >= 5) {
-        user.banned = true;
+      user.strikes = (user.strikes || 0) + 1;
+      await addLog("user", `Warned ${user.name}. Total: ${user.strikes}`, telegramId);
+      if (user.strikes >= 5) {
+        user.isBanned = true;
         user.state = "idle";
         await QueueItem.deleteOne({ telegramId });
         await addLog("ban", `Auto-banned ${user.name} (exceeded warning limit)`, telegramId);
-        await addNotification("ban", "Auto-Ban: Exceeded Warnings", `${user.name} reached max warnings (${user.warningsCount}/5)`);
+        await addNotification("ban", "Auto-Ban: Exceeded Warnings", `${user.name} reached max warnings (${user.strikes}/5)`);
       }
       break;
 
@@ -434,11 +431,11 @@ export async function performUserAction(
 export async function getPunishments() {
   const now = new Date();
   const [banned, cooldowns] = await Promise.all([
-    User.find({ banned: true })
-      .select("telegramId name username tiktokUsername banReason warningsCount ghostCount")
+    User.find({ isBanned: true })
+      .select("telegramId name username tiktokUsername banReason strikes ghostCount")
       .lean(),
-    User.find({ cooldownUntil: { $gt: now } })
-      .select("telegramId name username tiktokUsername cooldownUntil warningsCount")
+    User.find({ cancelCooldownUntil: { $gt: now } })
+      .select("telegramId name username tiktokUsername cancelCooldownUntil strikes")
       .lean(),
   ]);
 
@@ -449,7 +446,7 @@ export async function getPunishments() {
       username: u.username,
       tiktokUsername: u.tiktokUsername,
       reason: u.banReason || "No reason provided",
-      warningsCount: u.warningsCount,
+      warningsCount: u.strikes,
       ghostCount: u.ghostCount,
     })),
     cooldowns: cooldowns.map((u) => ({
@@ -457,10 +454,10 @@ export async function getPunishments() {
       name: u.name,
       username: u.username,
       tiktokUsername: u.tiktokUsername,
-      cooldownUntil: u.cooldownUntil,
-      warningsCount: u.warningsCount,
+      cooldownUntil: u.cancelCooldownUntil,
+      warningsCount: u.strikes,
       minutesRemaining: Math.ceil(
-        (new Date(u.cooldownUntil!).getTime() - now.getTime()) / 60000
+        (new Date(u.cancelCooldownUntil!).getTime() - now.getTime()) / 60000
       ),
     })),
   };
@@ -535,29 +532,14 @@ export async function forceRematch(telegramIdA: string, telegramIdB: string): Pr
   ]);
   if (!itemA || !itemB) throw new Error("One or both queue items not found");
 
-  const matchId = `m_${Date.now()}`;
   const match = await Match.create({
-    matchId,
-    userA: {
-      telegramId: itemA.telegramId,
-      name: itemA.telegramName,
-      tiktokUsername: itemA.tiktokUsername,
-      link: itemA.submittedLink,
-      isReady: false,
-      proofSubmitted: false,
-    },
-    userB: {
-      telegramId: itemB.telegramId,
-      name: itemB.telegramName,
-      tiktokUsername: itemB.tiktokUsername,
-      link: itemB.submittedLink,
-      isReady: false,
-      proofSubmitted: false,
-    },
+    user1Id: itemA.telegramId,
+    user2Id: itemB.telegramId,
+    link1: itemA.pendingLink,
+    link2: itemB.pendingLink,
     status: "active",
     proofStatus: "none",
     approvalStatus: "pending",
-    startedTime: new Date(),
   });
 
   await Promise.all([
@@ -598,10 +580,10 @@ export async function runCleanup(type: string): Promise<{ count: number }> {
       count = stuck.length;
       const ids: string[] = [];
       for (const m of stuck) {
-        ids.push(m.userA.telegramId, m.userB.telegramId);
+        ids.push(m.user1Id, m.user2Id);
       }
       await Match.updateMany({ status: "active" }, {
-        $set: { status: "cancelled", cancelReason: "timeout", completedTime: new Date() },
+        $set: { status: "cancelled", cancelReason: "timeout" },
       });
       if (ids.length > 0) {
         await User.updateMany({ telegramId: { $in: ids } }, { $set: { state: "idle" } });
@@ -639,7 +621,7 @@ export async function simulateBroadcast(target: string, message: string) {
   const now = new Date();
   let filter: Record<string, unknown> = {};
   if (target === "tiktok_registered") filter = { tiktokUsername: { $ne: "" } };
-  else if (target === "active_only") filter = { banned: false, $or: [{ cooldownUntil: null }, { cooldownUntil: { $lt: now } }] };
+  else if (target === "active_only") filter = { isBanned: false, $or: [{ cancelCooldownUntil: null }, { cancelCooldownUntil: { $lt: now } }] };
 
   const estimatedRecipients = await User.countDocuments(filter);
   const failedCount = Math.floor(Math.random() * Math.ceil(estimatedRecipients * 0.05));

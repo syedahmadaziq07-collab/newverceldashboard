@@ -7,14 +7,15 @@ export interface IUser extends Document {
   tiktokUsername: string;
   remainingCuts: number;
   state: "idle" | "queued" | "matched" | "verifying_proof";
-  banned: boolean;
+  isBanned: boolean;
   banReason?: string;
   blockedAt: Date | null;
-  cooldownUntil: Date | null;
+  cancelCooldownUntil: Date | null;
   cooldownReason: string | null;
   joinedTime: Date;
-  lastActive: Date;
-  warningsCount: number;
+  createdAt?: Date;
+  updatedAt?: Date;
+  strikes: number;
   inactivityStrikes: number;
   ghostCount: number;
   matchedCancelCount: number;
@@ -35,14 +36,13 @@ const UserSchema = new Schema<IUser>(
       enum: ["idle", "queued", "matched", "verifying_proof"],
       default: "idle",
     },
-    banned: { type: Boolean, default: false },
+    isBanned: { type: Boolean, default: false },
     banReason: { type: String },
     blockedAt: { type: Date, default: null },
-    cooldownUntil: { type: Date, default: null },
+    cancelCooldownUntil: { type: Date, default: null },
     cooldownReason: { type: String, default: null },
     joinedTime: { type: Date, default: Date.now },
-    lastActive: { type: Date, default: Date.now },
-    warningsCount: { type: Number, default: 0 },
+    strikes: { type: Number, default: 0 },
     inactivityStrikes: { type: Number, default: 0 },
     ghostCount: { type: Number, default: 0 },
     matchedCancelCount: { type: Number, default: 0 },

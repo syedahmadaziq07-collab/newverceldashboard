@@ -1,55 +1,25 @@
 import mongoose, { Schema, Document } from "mongoose";
 
 export interface IMatch extends Document {
-  matchId: string;
-  userA: {
-    telegramId: string;
-    name: string;
-    tiktokUsername: string;
-    link: string;
-    isReady: boolean;
-    proofSubmitted: boolean;
-    proofImageUrl?: string;
-  };
-  userB: {
-    telegramId: string;
-    name: string;
-    tiktokUsername: string;
-    link: string;
-    isReady: boolean;
-    proofSubmitted: boolean;
-    proofImageUrl?: string;
-  };
+  user1Id: string;
+  user2Id: string;
+  link1: string;
+  link2: string;
   status: "active" | "completed" | "cancelled";
   proofStatus: "none" | "submitted_a" | "submitted_b" | "submitted_both";
   approvalStatus: "pending" | "approved" | "rejected";
   cancelReason?: "timeout" | "ghosted" | "manual" | "stale";
-  startedTime: Date;
-  completedTime: Date | null;
   auditNote?: string;
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
 const MatchSchema = new Schema<IMatch>(
   {
-    matchId: { type: String, required: true, unique: true, index: true },
-    userA: {
-      telegramId: { type: String, required: true },
-      name: { type: String, required: true },
-      tiktokUsername: { type: String, default: "" },
-      link: { type: String, required: true },
-      isReady: { type: Boolean, default: false },
-      proofSubmitted: { type: Boolean, default: false },
-      proofImageUrl: { type: String },
-    },
-    userB: {
-      telegramId: { type: String, required: true },
-      name: { type: String, required: true },
-      tiktokUsername: { type: String, default: "" },
-      link: { type: String, required: true },
-      isReady: { type: Boolean, default: false },
-      proofSubmitted: { type: Boolean, default: false },
-      proofImageUrl: { type: String },
-    },
+    user1Id: { type: String, required: true, index: true },
+    user2Id: { type: String, required: true, index: true },
+    link1: { type: String, required: true },
+    link2: { type: String, required: true },
     status: {
       type: String,
       enum: ["active", "completed", "cancelled"],
@@ -70,8 +40,6 @@ const MatchSchema = new Schema<IMatch>(
       type: String,
       enum: ["timeout", "ghosted", "manual", "stale"],
     },
-    startedTime: { type: Date, default: Date.now },
-    completedTime: { type: Date, default: null },
     auditNote: { type: String },
   },
   { timestamps: true }
