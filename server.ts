@@ -9,7 +9,7 @@ import adminRouter from "./routes/admin.js";
 dotenv.config();
 
 const app = express();
-const PORT = parseInt(process.env.PORT || "3000", 10);
+const PORT = parseInt(process.env.PORT || "5000", 10);
 const MONGO_URI = process.env.MONGODB_URI || "";
 const DASHBOARD_URL = process.env.DASHBOARD_URL || "";
 
@@ -22,9 +22,18 @@ app.use(
   })
 );
 
-const allowedOrigins: string[] = [
-  "https://newverceldashboard-yvw4.vercel.app",
-];
+const allowedOrigins: string[] = [];
+
+const replitDomains = process.env.REPLIT_DOMAINS || "";
+if (replitDomains) {
+  replitDomains.split(",").forEach((d) => {
+    const trimmed = d.trim();
+    if (trimmed) {
+      allowedOrigins.push(`https://${trimmed}`);
+    }
+  });
+}
+
 if (DASHBOARD_URL && !allowedOrigins.includes(DASHBOARD_URL)) {
   allowedOrigins.push(DASHBOARD_URL);
 }
@@ -33,7 +42,8 @@ app.use(
   cors({
     origin: (origin, callback) => {
       if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin)) return callback(null, true);
+      if (allowedOrigins.length === 0) return callback(null, true);
+      if (allowedOrigins.some((o) => origin.endsWith(o.replace("https://", "")))) return callback(null, true);
       callback(new Error(`CORS: Origin ${origin} not allowed`));
     },
     credentials: true,
