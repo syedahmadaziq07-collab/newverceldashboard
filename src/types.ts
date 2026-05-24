@@ -19,6 +19,7 @@ export interface User {
   matchedCancelCount?: number;
   rejectedProofCount?: number;
   isSuspicious?: boolean;
+  completedSwaps?: number;
 }
 
 export interface QueueItem {

@@ -75,14 +75,15 @@ export async function getQueue(page = 1, limit = 50) {
   ]);
   const now = Date.now();
   const data = items.map((q) => ({
-    id: q._id,
+    id: q.telegramId,
+    userId: q.telegramId,
     telegramId: q.telegramId,
     telegramUsername: q.telegramUsername,
     telegramName: q.telegramName,
     tiktokUsername: q.tiktokUsername,
     submittedLink: q.submittedLink,
     isReady: q.isReady,
-    queuedAt: q.queuedAt,
+    queuedAt: q.queuedAt instanceof Date ? q.queuedAt.toISOString() : String(q.queuedAt),
     waitingMinutes: Math.floor((now - new Date(q.queuedAt).getTime()) / 60000),
   }));
   return { data, total, page, pages: Math.ceil(total / limit) };
@@ -102,7 +103,26 @@ export async function getMatches(
     Match.find(filter).sort({ startedTime: -1 }).skip(skip).limit(limit).lean(),
     Match.countDocuments(filter),
   ]);
-  return { data: items, total, page, pages: Math.ceil(total / limit) };
+  const data = items.map((m) => ({
+    id: m.matchId,
+    userAId: m.userA.telegramId,
+    userAName: m.userA.name,
+    userATiktok: m.userA.tiktokUsername,
+    userALink: m.userA.link,
+    userBId: m.userB.telegramId,
+    userBName: m.userB.name,
+    userBTiktok: m.userB.tiktokUsername,
+    userBLink: m.userB.link,
+    status: m.status,
+    proofStatus: m.proofStatus,
+    approvalStatus: m.approvalStatus,
+    cancelReason: m.cancelReason ?? null,
+    startedTime: m.startedTime instanceof Date ? m.startedTime.toISOString() : String(m.startedTime),
+    completedTime: m.completedTime instanceof Date ? m.completedTime.toISOString() : null,
+    proofImageUrl: m.userA.proofImageUrl || m.userB.proofImageUrl || undefined,
+    auditLoggerNote: m.auditNote,
+  }));
+  return { data, total, page, pages: Math.ceil(total / limit) };
 }
 
 export async function cancelMatch(matchId: string): Promise<boolean> {
@@ -176,7 +196,13 @@ export async function getLogs(
     BotLog.find(filter).sort({ timestamp: -1 }).skip(skip).limit(limit).lean(),
     BotLog.countDocuments(filter),
   ]);
-  return { data: items, total, page, pages: Math.ceil(total / limit) };
+  const data = items.map((l) => ({
+    id: (l._id as any).toString(),
+    timestamp: l.timestamp instanceof Date ? l.timestamp.toISOString() : String(l.timestamp),
+    category: l.category,
+    message: l.message,
+  }));
+  return { data, total, page, pages: Math.ceil(total / limit) };
 }
 
 // ─── USERS ────────────────────────────────────────────────────────────────────
