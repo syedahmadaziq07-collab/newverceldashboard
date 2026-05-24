@@ -22,21 +22,15 @@ app.use(
   })
 );
 
-const allowedOrigins: string[] = [];
-
-const replitDomains = process.env.REPLIT_DOMAINS || "";
-if (replitDomains) {
-  replitDomains.split(",").forEach((d) => {
-    const trimmed = d.trim();
-    if (trimmed) {
-      allowedOrigins.push(`https://${trimmed}`);
-    }
-  });
-}
-
-if (DASHBOARD_URL && !allowedOrigins.includes(DASHBOARD_URL)) {
-  allowedOrigins.push(DASHBOARD_URL);
-}
+const allowedOrigins = [
+  process.env.DASHBOARD_URL,
+  "https://newverceldashboard-yvw4.vercel.app",
+  /\.vercel\.app$/,
+  /\.replit\.dev$/,
+  /\.replit\.app$/,
+  "http://localhost:5000",
+  "http://localhost:3000",
+].filter(Boolean) as (string | RegExp)[];
 
 app.use(
   cors({
@@ -44,8 +38,10 @@ app.use(
       if (!origin) return callback(null, true);
       if (/^https?:\/\/localhost(:\d+)?$/.test(origin)) return callback(null, true);
       if (/^https?:\/\/127\.0\.0\.1(:\d+)?$/.test(origin)) return callback(null, true);
-      if (allowedOrigins.length === 0) return callback(null, true);
-      if (allowedOrigins.some((o) => origin.endsWith(o.replace("https://", "")))) return callback(null, true);
+      const allowed = allowedOrigins.some((o) =>
+        o instanceof RegExp ? o.test(origin) : o === origin
+      );
+      if (allowed) return callback(null, true);
       callback(new Error(`CORS: Origin ${origin} not allowed`));
     },
     credentials: true,
