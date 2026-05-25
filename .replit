@@ -50,3 +50,8 @@ publicDir = "dist"
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 60000
+
+[userenv]
+
+[userenv.shared]
+VITE_API_URL = "https://site--cutprice-api--d8w4sfqmrf5q.code.run"
