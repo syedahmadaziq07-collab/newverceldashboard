@@ -5,34 +5,29 @@ import helmet from "helmet";
 import cors from "cors";
 import mongoose from "mongoose";
 import adminRouter from "./routes/admin.js";
-
 dotenv.config();
-
 const app = express();
 app.set("trust proxy", 1);
 const PORT = parseInt(process.env.PORT || "5000", 10);
 const MONGO_URI = process.env.MONGODB_URI || "";
 const DASHBOARD_URL = process.env.DASHBOARD_URL || "";
-
 // ─── SECURITY MIDDLEWARE ──────────────────────────────────────────────────────
-
 app.use(
   helmet({
     contentSecurityPolicy: false,
     crossOriginEmbedderPolicy: false,
   })
 );
-
 const allowedOrigins = [
   process.env.DASHBOARD_URL,
   "https://newverceldashboard-yvw4.vercel.app",
+  "https://newverceldashboard-364rveku6-syedahmadaziq07-1130s-projects.vercel.app",
   /\.vercel\.app$/,
   /\.replit\.dev$/,
   /\.replit\.app$/,
   "http://localhost:5000",
   "http://localhost:3000",
 ].filter(Boolean) as (string | RegExp)[];
-
 app.use(
   cors({
     origin: (origin, callback) => {
@@ -48,11 +43,8 @@ app.use(
     credentials: true,
   })
 );
-
 app.use(express.json({ limit: "1mb" }));
-
 // ─── HEALTH CHECK ─────────────────────────────────────────────────────────────
-
 app.get("/api/health", (_req, res) => {
   res.json({
     status: "ok",
@@ -60,13 +52,9 @@ app.get("/api/health", (_req, res) => {
     timestamp: new Date().toISOString(),
   });
 });
-
 // ─── ADMIN API ────────────────────────────────────────────────────────────────
-
 app.use("/api/admin", adminRouter);
-
 // ─── VITE / STATIC FRONTEND ───────────────────────────────────────────────────
-
 async function startServer() {
   if (MONGO_URI) {
     try {
@@ -79,7 +67,6 @@ async function startServer() {
   } else {
     console.warn("[db] MONGODB_URI not set — running without database");
   }
-
   if (process.env.NODE_ENV !== "production") {
     const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
@@ -94,10 +81,8 @@ async function startServer() {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
-
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`[server] CutPricebot API running on port ${PORT}`);
   });
 }
-
 startServer();
