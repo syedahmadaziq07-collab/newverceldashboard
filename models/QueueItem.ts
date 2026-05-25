@@ -1,26 +1,25 @@
 import mongoose, { Schema, Document } from "mongoose";
 
 export interface IQueueItem extends Document {
-  telegramId: string;
+  telegramId: number;
   telegramUsername: string;
   telegramName: string;
   tiktokUsername: string;
   pendingLink: string;
-  isReady: boolean;
-  queuedAt: Date;
+  status: string;
+  createdAt: Date;
 }
 
 const QueueItemSchema = new Schema<IQueueItem>(
   {
-    telegramId: { type: String, required: true, unique: true, index: true },
+    telegramId: { type: Number, required: true, unique: true, index: true },
     telegramUsername: { type: String, default: "" },
-    telegramName: { type: String, required: true },
+    telegramName: { type: String, default: "" },
     tiktokUsername: { type: String, default: "" },
-    pendingLink: { type: String, required: true },
-    isReady: { type: Boolean, default: true },
-    queuedAt: { type: Date, default: Date.now, index: true },
+    pendingLink: { type: String, default: "" },
+    status: { type: String, default: "waiting" },
   },
-  { timestamps: false }
+  { timestamps: true }
 );
 
-export default mongoose.model<IQueueItem>("QueueItem", QueueItemSchema);
+export default mongoose.model<IQueueItem>("Queue", QueueItemSchema);

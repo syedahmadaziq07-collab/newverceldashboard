@@ -5,10 +5,12 @@ export interface IMatch extends Document {
   user2Id: string;
   link1: string;
   link2: string;
-  status: "active" | "completed" | "cancelled";
-  proofStatus: "none" | "submitted_a" | "submitted_b" | "submitted_both";
-  approvalStatus: "pending" | "approved" | "rejected";
-  cancelReason?: "timeout" | "ghosted" | "manual" | "stale";
+  status: string;
+  user1ProofSubmitted: boolean;
+  user2ProofSubmitted: boolean;
+  user1ProofApprovedByPartner: boolean;
+  user2ProofApprovedByPartner: boolean;
+  cancelReason?: string;
   auditNote?: string;
   createdAt?: Date;
   updatedAt?: Date;
@@ -18,28 +20,14 @@ const MatchSchema = new Schema<IMatch>(
   {
     user1Id: { type: String, required: true, index: true },
     user2Id: { type: String, required: true, index: true },
-    link1: { type: String, required: true },
-    link2: { type: String, required: true },
-    status: {
-      type: String,
-      enum: ["active", "completed", "cancelled"],
-      default: "active",
-      index: true,
-    },
-    proofStatus: {
-      type: String,
-      enum: ["none", "submitted_a", "submitted_b", "submitted_both"],
-      default: "none",
-    },
-    approvalStatus: {
-      type: String,
-      enum: ["pending", "approved", "rejected"],
-      default: "pending",
-    },
-    cancelReason: {
-      type: String,
-      enum: ["timeout", "ghosted", "manual", "stale"],
-    },
+    link1: { type: String, default: "" },
+    link2: { type: String, default: "" },
+    status: { type: String, default: "active", index: true },
+    user1ProofSubmitted: { type: Boolean, default: false },
+    user2ProofSubmitted: { type: Boolean, default: false },
+    user1ProofApprovedByPartner: { type: Boolean, default: false },
+    user2ProofApprovedByPartner: { type: Boolean, default: false },
+    cancelReason: { type: String },
     auditNote: { type: String },
   },
   { timestamps: true }

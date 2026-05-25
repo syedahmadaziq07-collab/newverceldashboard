@@ -1,0 +1,43 @@
+AUDIT ONLY repo: newverceldashboard
+DO NOT touch repo: cutpricebot
+
+Fix dashboard backend to match bot's real MongoDB schema:
+
+1. In models/QueueItem.ts — change collection name from "QueueItem" to "Queue"
+   so mongoose reads from "queues" collection (not "queueitems")
+
+2. In services/adminService.ts — fix getUsers() mapping:
+   - map telegramUsername → username (bot has no "username" field)
+   - map cutBalance → remainingCuts (bot has no "remainingCuts")
+   - name field: bot has no "name", use telegramUsername as fallback
+   - telegramId is Number in bot, handle accordingly
+   - completedSwaps: use totalApprovedCount from bot
+   - warningsCount/strikes: OK, same field name
+
+3. In services/adminService.ts — fix getQueue() mapping:
+   - bot Queue has: telegramId, telegramUsername, telegramName, tiktokUsername, pendingLink, status, createdAt
+   - dashboard expects: id, userId, telegramId, telegramUsername, telegramName, tiktokUsername, submittedLink, isReady, queuedAt, waitingMinutes
+   - map: pendingLink → submittedLink, createdAt → queuedAt, status==="waiting" → isReady=true
+
+4. In services/adminService.ts — fix getMatches() mapping:
+   - bot Match has no proofStatus field — derive it:
+     if user1ProofSubmitted && user2ProofSubmitted → "submitted_both"
+     if user1ProofSubmitted → "submitted_a"
+     if user2ProofSubmitted → "submitted_b"
+     else → "none"
+   - bot Match has no approvalStatus — derive it:
+     if user1ProofApprovedByPartner && user2ProofApprovedByPartner → "approved"
+     else if status === "cancelled" → "rejected"
+     else → "pending"
+   - bot Match status includes "pending_ready" and "expired" — pass through as-is
+
+5. In services/adminService.ts — fix getDashboardStats():
+   - usersInQueue: count from Queue model (not QueueItem)
+   - activeMatches: Match where status === "active" OR status === "pending_ready"
+   - bannedUsers: User where isBanned === true (same field, OK)
+   - cooldownUsers: User where cancelCooldownUntil > now (same, OK)
+   - completedSwaps: Match where status === "completed"
+   - cancelled: Match where status === "cancelled" OR status === "expired"
+
+DO NOT change: server.ts, routes/admin.ts, middleware/, src/ frontend, api.ts, login flow
+DO NOT touch cutpricebot repo at all

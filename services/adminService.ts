@@ -6,6 +6,21 @@ import AdminNotification from "../models/AdminNotification";
 import Settings from "../models/Settings";
 import { addLog, addNotification } from "../utils/adminLogger";
 
+// ─── HELPERS ──────────────────────────────────────────────────────────────────
+
+function deriveProofStatus(m: any): string {
+  if (m.user1ProofSubmitted && m.user2ProofSubmitted) return "submitted_both";
+  if (m.user1ProofSubmitted) return "submitted_a";
+  if (m.user2ProofSubmitted) return "submitted_b";
+  return "none";
+}
+
+function deriveApprovalStatus(m: any): string {
+  if (m.user1ProofApprovedByPartner && m.user2ProofApprovedByPartner) return "approved";
+  if (m.status === "cancelled" || m.status === "expired") return "rejected";
+  return "pending";
+}
+
 // ─── STATS ────────────────────────────────────────────────────────────────────
 
 export async function getDashboardStats() {
@@ -31,15 +46,29 @@ export async function getDashboardStats() {
     User.countDocuments(),
     User.countDocuments({ tiktokUsername: { $ne: "" } }),
     QueueItem.countDocuments(),
-    Match.countDocuments({ status: "active" }),
-    Match.countDocuments({ status: "completed", completedTime: { $gte: startOfDay } }),
-    Match.countDocuments({ status: "cancelled", completedTime: { $gte: startOfDay } }),
+    Match.countDocuments({ status: { $in: ["active", "pending_ready"] } }),
+    Match.countDocuments({ status: "completed", updatedAt: { $gte: startOfDay } }),
+    Match.countDocuments({ status: { $in: ["cancelled", "expired"] }, updatedAt: { $gte: startOfDay } }),
     User.countDocuments({ isBanned: true }),
     User.countDocuments({ cancelCooldownUntil: { $gt: now } }),
     User.countDocuments({ updatedAt: { $gte: fifteenMinutesAgo }, isBanned: false }),
-    Match.countDocuments({ status: "cancelled", proofStatus: "none", completedTime: { $gte: startOfDay } }),
-    Match.countDocuments({ status: "active", proofStatus: { $in: ["submitted_a", "submitted_b", "submitted_both"] } }),
-    Match.countDocuments({ approvalStatus: "rejected", completedTime: { $gte: startOfDay } }),
+    Match.countDocuments({
+      status: { $in: ["cancelled", "expired"] },
+      user1ProofSubmitted: false,
+      user2ProofSubmitted: false,
+      updatedAt: { $gte: startOfDay },
+    }),
+    Match.countDocuments({
+      status: { $in: ["active", "pending_ready"] },
+      $or: [{ user1ProofSubmitted: true }, { user2ProofSubmitted: true }],
+    }),
+    Match.countDocuments({
+      user1ProofApprovedByPartner: false,
+      user2ProofApprovedByPartner: false,
+      status: { $in: ["cancelled", "expired"] },
+      updatedAt: { $gte: startOfDay },
+      $or: [{ user1ProofSubmitted: true }, { user2ProofSubmitted: true }],
+    }),
   ]);
 
   const totalConcluded = completedToday + cancelledToday;
@@ -70,21 +99,21 @@ export async function getDashboardStats() {
 export async function getQueue(page = 1, limit = 50) {
   const skip = (page - 1) * limit;
   const [items, total] = await Promise.all([
-    QueueItem.find().sort({ queuedAt: 1 }).skip(skip).limit(limit).lean(),
+    QueueItem.find().sort({ createdAt: 1 }).skip(skip).limit(limit).lean(),
     QueueItem.countDocuments(),
   ]);
   const now = Date.now();
-  const data = items.map((q) => ({
-    id: q.telegramId,
-    userId: q.telegramId,
-    telegramId: q.telegramId,
-    telegramUsername: q.telegramUsername,
-    telegramName: q.telegramName,
-    tiktokUsername: q.tiktokUsername,
-    submittedLink: q.pendingLink,
-    isReady: q.isReady,
-    queuedAt: q.queuedAt instanceof Date ? q.queuedAt.toISOString() : String(q.queuedAt),
-    waitingMinutes: Math.floor((now - new Date(q.queuedAt).getTime()) / 60000),
+  const data = items.map((q: any) => ({
+    id: String(q.telegramId),
+    userId: String(q.telegramId),
+    telegramId: String(q.telegramId),
+    telegramUsername: q.telegramUsername || "",
+    telegramName: q.telegramName || "",
+    tiktokUsername: q.tiktokUsername || "",
+    submittedLink: q.pendingLink || "",
+    isReady: q.status === "waiting",
+    queuedAt: q.createdAt instanceof Date ? q.createdAt.toISOString() : String(q.createdAt ?? ""),
+    waitingMinutes: q.createdAt ? Math.floor((now - new Date(q.createdAt).getTime()) / 60000) : 0,
   }));
   return { data, total, page, pages: Math.ceil(total / limit) };
 }
@@ -103,8 +132,8 @@ export async function getMatches(
     Match.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
     Match.countDocuments(filter),
   ]);
-  const data = items.map((m) => ({
-    id: (m._id as any).toString(),
+  const data = items.map((m: any) => ({
+    id: m._id.toString(),
     userAId: m.user1Id,
     userAName: "",
     userATiktok: "",
@@ -114,8 +143,8 @@ export async function getMatches(
     userBTiktok: "",
     userBLink: m.link2,
     status: m.status,
-    proofStatus: m.proofStatus,
-    approvalStatus: m.approvalStatus,
+    proofStatus: deriveProofStatus(m),
+    approvalStatus: deriveApprovalStatus(m),
     cancelReason: m.cancelReason ?? null,
     startedTime: m.createdAt instanceof Date ? m.createdAt.toISOString() : String(m.createdAt),
     completedTime: m.updatedAt instanceof Date ? m.updatedAt.toISOString() : null,
@@ -131,7 +160,6 @@ export async function cancelMatch(matchId: string): Promise<boolean> {
 
   match.status = "cancelled";
   match.cancelReason = "manual";
-  match.approvalStatus = "rejected";
   await match.save();
 
   await User.updateMany(
@@ -139,12 +167,7 @@ export async function cancelMatch(matchId: string): Promise<boolean> {
     { $set: { state: "idle" } }
   );
 
-  await addLog(
-    "match",
-    `Admin force-cancelled match ${matchId}.`,
-    undefined,
-    matchId
-  );
+  await addLog("match", `Admin force-cancelled match ${matchId}.`, undefined, matchId);
   return true;
 }
 
@@ -158,16 +181,16 @@ export async function auditProof(
 
   if (verdict === "approve") {
     match.status = "completed";
-    match.approvalStatus = "approved";
+    match.user1ProofApprovedByPartner = true;
+    match.user2ProofApprovedByPartner = true;
     await match.save();
     await User.updateMany(
       { telegramId: { $in: [match.user1Id, match.user2Id] } },
-      { $set: { state: "idle" }, $inc: { completedSwaps: 1 } }
+      { $set: { state: "idle" }, $inc: { totalApprovedCount: 1 } }
     );
     await addLog("proof", `Proof approved for match ${matchId}.`, undefined, matchId);
   } else {
     match.status = "cancelled";
-    match.approvalStatus = "rejected";
     await match.save();
     const cancelCooldownUntil = new Date(Date.now() + cooldownHours * 60 * 60 * 1000);
     await User.updateMany(
@@ -193,8 +216,8 @@ export async function getLogs(
     BotLog.find(filter).sort({ timestamp: -1 }).skip(skip).limit(limit).lean(),
     BotLog.countDocuments(filter),
   ]);
-  const data = items.map((l) => ({
-    id: (l._id as any).toString(),
+  const data = items.map((l: any) => ({
+    id: l._id.toString(),
     timestamp: l.timestamp instanceof Date ? l.timestamp.toISOString() : String(l.timestamp),
     category: l.category,
     message: l.message,
@@ -215,11 +238,10 @@ export async function getUsers(
   if (bannedOnly) filter.isBanned = true;
   if (search) {
     filter.$or = [
-      { name: { $regex: search, $options: "i" } },
-      { username: { $regex: search, $options: "i" } },
+      { telegramUsername: { $regex: search, $options: "i" } },
       { tiktokUsername: { $regex: search, $options: "i" } },
-      { telegramId: { $regex: search, $options: "i" } },
-    ];
+      { telegramId: isNaN(Number(search)) ? undefined : Number(search) },
+    ].filter((c) => c !== undefined && Object.values(c)[0] !== undefined);
   }
   const [items, total] = await Promise.all([
     User.find(filter)
@@ -231,36 +253,35 @@ export async function getUsers(
     User.countDocuments(filter),
   ]);
 
-  // Map DB fields to frontend User type (telegramId → id, add isBlocked alias)
-  const data = items.map((u) => ({
-    id: u.telegramId,
-    name: u.name,
-    username: u.username || "",
+  const data = items.map((u: any) => ({
+    id: String(u.telegramId),
+    name: u.telegramUsername || String(u.telegramId),
+    username: u.telegramUsername || "",
     tiktokUsername: u.tiktokUsername || "",
-    remainingCuts: u.remainingCuts,
+    remainingCuts: u.cutBalance ?? 0,
     state: u.state,
     banned: u.isBanned,
     isBlocked: u.isBanned,
     banReason: u.banReason ?? null,
-    blockedAt: u.blockedAt ? u.blockedAt.toISOString() : null,
-    cooldownUntil: u.cancelCooldownUntil ? u.cancelCooldownUntil.toISOString() : null,
+    blockedAt: u.blockedAt ? new Date(u.blockedAt).toISOString() : null,
+    cooldownUntil: u.cancelCooldownUntil ? new Date(u.cancelCooldownUntil).toISOString() : null,
     cooldownReason: u.cooldownReason ?? null,
     joinedTime: u.joinedTime?.toISOString?.() ?? new Date().toISOString(),
-    lastActive: (u as any).updatedAt?.toISOString?.() ?? new Date().toISOString(),
-    warningsCount: u.strikes,
-    inactivityStrikes: u.inactivityStrikes,
-    ghostCount: u.ghostCount,
-    matchedCancelCount: u.matchedCancelCount,
-    rejectedProofCount: u.rejectedProofCount,
-    isSuspicious: u.isSuspicious,
-    completedSwaps: u.completedSwaps,
+    lastActive: u.updatedAt?.toISOString?.() ?? new Date().toISOString(),
+    warningsCount: u.strikes ?? 0,
+    inactivityStrikes: u.inactivityStrikes ?? 0,
+    ghostCount: u.ghostCount ?? 0,
+    matchedCancelCount: u.matchedCancelCount ?? 0,
+    rejectedProofCount: u.rejectedProofCount ?? 0,
+    isSuspicious: u.isSuspicious ?? false,
+    completedSwaps: u.totalApprovedCount ?? 0,
   }));
 
   return { data, total, page, pages: Math.ceil(total / limit) };
 }
 
 export async function blockUser(telegramId: string, reason: string): Promise<boolean> {
-  const user = await User.findOne({ telegramId });
+  const user = await User.findOne({ telegramId: Number(telegramId) });
   if (!user) return false;
 
   user.isBanned = true;
@@ -269,14 +290,15 @@ export async function blockUser(telegramId: string, reason: string): Promise<boo
   user.state = "idle";
   await user.save();
 
-  await QueueItem.deleteOne({ telegramId });
-  await addLog("ban", `Admin BLOCKED user ${user.name} (${telegramId}). Reason: ${reason}`, telegramId);
-  await addNotification("ban", "USER_BLOCKED", `Admin blocked ${user.name} (@${user.username || telegramId}). Reason: ${reason}`);
+  await QueueItem.deleteOne({ telegramId: Number(telegramId) });
+  const displayName = (user as any).telegramUsername || String(user.telegramId);
+  await addLog("ban", `Admin BLOCKED user ${displayName} (${telegramId}). Reason: ${reason}`, telegramId);
+  await addNotification("ban", "USER_BLOCKED", `Admin blocked ${displayName}. Reason: ${reason}`);
   return true;
 }
 
 export async function unblockUser(telegramId: string): Promise<boolean> {
-  const user = await User.findOne({ telegramId });
+  const user = await User.findOne({ telegramId: Number(telegramId) });
   if (!user) return false;
 
   user.isBanned = false;
@@ -284,12 +306,13 @@ export async function unblockUser(telegramId: string): Promise<boolean> {
   (user as any).blockedAt = null;
   await user.save();
 
-  await addLog("ban", `Admin UNBLOCKED user ${user.name} (${telegramId})`, telegramId);
+  const displayName = (user as any).telegramUsername || String(user.telegramId);
+  await addLog("ban", `Admin UNBLOCKED user ${displayName} (${telegramId})`, telegramId);
   return true;
 }
 
 export async function applyUserCooldown(telegramId: string, hours: number, reason: string): Promise<boolean> {
-  const user = await User.findOne({ telegramId });
+  const user = await User.findOne({ telegramId: Number(telegramId) });
   if (!user) return false;
 
   const cancelCooldownUntil = new Date(Date.now() + hours * 60 * 60 * 1000);
@@ -298,26 +321,28 @@ export async function applyUserCooldown(telegramId: string, hours: number, reaso
   user.state = "idle";
   await user.save();
 
-  await QueueItem.deleteOne({ telegramId });
-  await addLog("cooldown", `Admin applied ${hours}h cooldown to ${user.name}. Reason: ${reason}`, telegramId);
-  await addNotification("cooldown", "USER_COOLDOWN_APPLIED", `${user.name} placed on ${hours}h cooldown. Reason: ${reason}`);
+  await QueueItem.deleteOne({ telegramId: Number(telegramId) });
+  const displayName = (user as any).telegramUsername || String(user.telegramId);
+  await addLog("cooldown", `Admin applied ${hours}h cooldown to ${displayName}. Reason: ${reason}`, telegramId);
+  await addNotification("cooldown", "USER_COOLDOWN_APPLIED", `${displayName} placed on ${hours}h cooldown. Reason: ${reason}`);
   return true;
 }
 
 export async function removeUserCooldown(telegramId: string): Promise<boolean> {
-  const user = await User.findOne({ telegramId });
+  const user = await User.findOne({ telegramId: Number(telegramId) });
   if (!user) return false;
 
   user.cancelCooldownUntil = null;
   (user as any).cooldownReason = null;
   await user.save();
 
-  await addLog("cooldown", `Admin removed cooldown from ${user.name} (${telegramId})`, telegramId);
+  const displayName = (user as any).telegramUsername || String(user.telegramId);
+  await addLog("cooldown", `Admin removed cooldown from ${displayName} (${telegramId})`, telegramId);
   return true;
 }
 
 export async function banUser(telegramId: string, reason: string): Promise<boolean> {
-  const user = await User.findOne({ telegramId });
+  const user = await User.findOne({ telegramId: Number(telegramId) });
   if (!user) return false;
 
   user.isBanned = true;
@@ -325,21 +350,23 @@ export async function banUser(telegramId: string, reason: string): Promise<boole
   user.state = "idle";
   await user.save();
 
-  await QueueItem.deleteOne({ telegramId });
-  await addLog("ban", `Admin banned user ${user.name} (${telegramId}). Reason: ${reason}`, telegramId);
-  await addNotification("ban", "Manual Ban Applied", `Admin banned ${user.name} (@${user.username}). Reason: ${reason}`);
+  await QueueItem.deleteOne({ telegramId: Number(telegramId) });
+  const displayName = (user as any).telegramUsername || String(user.telegramId);
+  await addLog("ban", `Admin banned user ${displayName} (${telegramId}). Reason: ${reason}`, telegramId);
+  await addNotification("ban", "Manual Ban Applied", `Admin banned ${displayName}. Reason: ${reason}`);
   return true;
 }
 
 export async function unbanUser(telegramId: string): Promise<boolean> {
-  const user = await User.findOne({ telegramId });
+  const user = await User.findOne({ telegramId: Number(telegramId) });
   if (!user) return false;
 
   user.isBanned = false;
   user.banReason = undefined;
   await user.save();
 
-  await addLog("ban", `Admin unbanned user ${user.name} (${telegramId})`, telegramId);
+  const displayName = (user as any).telegramUsername || String(user.telegramId);
+  await addLog("ban", `Admin unbanned user ${displayName} (${telegramId})`, telegramId);
   return true;
 }
 
@@ -348,65 +375,65 @@ export async function performUserAction(
   action: string,
   payload?: Record<string, unknown>
 ): Promise<{ success: boolean; message: string; user?: unknown }> {
-  const user = await User.findOne({ telegramId });
+  const user = await User.findOne({ telegramId: Number(telegramId) });
   if (!user) return { success: false, message: "User not found" };
 
   const settings = await Settings.findOne({ key: "global" }).lean();
   const dailyCutsAmount = settings?.dailyCutsAmount ?? 3;
-  const cooldownDurationHours = settings?.cooldownDurationHours ?? 12;
+  const displayName = (user as any).telegramUsername || String(user.telegramId);
 
   switch (action) {
     case "reset_cuts":
-      user.remainingCuts = dailyCutsAmount;
-      await addLog("user", `Reset cuts to ${dailyCutsAmount} for ${user.name}`, telegramId);
+      (user as any).cutBalance = dailyCutsAmount;
+      await addLog("user", `Reset cuts to ${dailyCutsAmount} for ${displayName}`, telegramId);
       break;
 
     case "ban":
       user.isBanned = true;
       user.banReason = (payload?.reason as string) || "Manual ban by admin";
       user.state = "idle";
-      await QueueItem.deleteOne({ telegramId });
-      await addLog("ban", `Admin banned ${user.name}`, telegramId);
-      await addNotification("ban", "Manual Ban Applied", `Admin banned ${user.name} (@${user.username})`);
+      await QueueItem.deleteOne({ telegramId: Number(telegramId) });
+      await addLog("ban", `Admin banned ${displayName}`, telegramId);
+      await addNotification("ban", "Manual Ban Applied", `Admin banned ${displayName}`);
       break;
 
     case "unban":
       user.isBanned = false;
       user.banReason = undefined;
-      await addLog("ban", `Admin unbanned ${user.name}`, telegramId);
+      await addLog("ban", `Admin unbanned ${displayName}`, telegramId);
       break;
 
     case "clear_cooldown":
       user.cancelCooldownUntil = null;
-      await addLog("cooldown", `Cleared cooldown for ${user.name}`, telegramId);
+      await addLog("cooldown", `Cleared cooldown for ${displayName}`, telegramId);
       break;
 
     case "cooldown_24h": {
       const until = new Date(Date.now() + 24 * 60 * 60 * 1000);
       user.cancelCooldownUntil = until;
       user.state = "idle";
-      await QueueItem.deleteOne({ telegramId });
-      await addLog("cooldown", `Applied 24h cooldown to ${user.name}`, telegramId);
-      await addNotification("cooldown", "24hr Penalty Cooldown", `@${user.username} was placed on 24h cooldown`);
+      await QueueItem.deleteOne({ telegramId: Number(telegramId) });
+      await addLog("cooldown", `Applied 24h cooldown to ${displayName}`, telegramId);
+      await addNotification("cooldown", "24hr Penalty Cooldown", `@${displayName} was placed on 24h cooldown`);
       break;
     }
 
     case "warn":
       user.strikes = (user.strikes || 0) + 1;
-      await addLog("user", `Warned ${user.name}. Total: ${user.strikes}`, telegramId);
+      await addLog("user", `Warned ${displayName}. Total: ${user.strikes}`, telegramId);
       if (user.strikes >= 5) {
         user.isBanned = true;
         user.state = "idle";
-        await QueueItem.deleteOne({ telegramId });
-        await addLog("ban", `Auto-banned ${user.name} (exceeded warning limit)`, telegramId);
-        await addNotification("ban", "Auto-Ban: Exceeded Warnings", `${user.name} reached max warnings (${user.strikes}/5)`);
+        await QueueItem.deleteOne({ telegramId: Number(telegramId) });
+        await addLog("ban", `Auto-banned ${displayName} (exceeded warning limit)`, telegramId);
+        await addNotification("ban", "Auto-Ban: Exceeded Warnings", `${displayName} reached max warnings (${user.strikes}/5)`);
       }
       break;
 
     case "reset_state":
       user.state = "idle";
-      await QueueItem.deleteOne({ telegramId });
-      await addLog("user", `Reset state to idle for ${user.name}`, telegramId);
+      await QueueItem.deleteOne({ telegramId: Number(telegramId) });
+      await addLog("user", `Reset state to idle for ${displayName}`, telegramId);
       break;
 
     case "adjust_stats":
@@ -415,7 +442,7 @@ export async function performUserAction(
         if (payload.ghostCount !== undefined) user.ghostCount = payload.ghostCount as number;
         if (payload.isSuspicious !== undefined) user.isSuspicious = payload.isSuspicious as boolean;
       }
-      await addLog("user", `Updated stats for ${user.name}`, telegramId);
+      await addLog("user", `Updated stats for ${displayName}`, telegramId);
       break;
 
     default:
@@ -432,27 +459,27 @@ export async function getPunishments() {
   const now = new Date();
   const [banned, cooldowns] = await Promise.all([
     User.find({ isBanned: true })
-      .select("telegramId name username tiktokUsername banReason strikes ghostCount")
+      .select("telegramId telegramUsername tiktokUsername banReason strikes ghostCount")
       .lean(),
     User.find({ cancelCooldownUntil: { $gt: now } })
-      .select("telegramId name username tiktokUsername cancelCooldownUntil strikes")
+      .select("telegramId telegramUsername tiktokUsername cancelCooldownUntil strikes")
       .lean(),
   ]);
 
   return {
-    banned: banned.map((u) => ({
-      telegramId: u.telegramId,
-      name: u.name,
-      username: u.username,
+    banned: banned.map((u: any) => ({
+      telegramId: String(u.telegramId),
+      name: u.telegramUsername || String(u.telegramId),
+      username: u.telegramUsername || "",
       tiktokUsername: u.tiktokUsername,
       reason: u.banReason || "No reason provided",
       warningsCount: u.strikes,
       ghostCount: u.ghostCount,
     })),
-    cooldowns: cooldowns.map((u) => ({
-      telegramId: u.telegramId,
-      name: u.name,
-      username: u.username,
+    cooldowns: cooldowns.map((u: any) => ({
+      telegramId: String(u.telegramId),
+      name: u.telegramUsername || String(u.telegramId),
+      username: u.telegramUsername || "",
       tiktokUsername: u.tiktokUsername,
       cooldownUntil: u.cancelCooldownUntil,
       warningsCount: u.strikes,
@@ -506,17 +533,18 @@ export async function updateSettings(updates: Partial<Record<string, unknown>>) 
 // ─── QUEUE ACTIONS ────────────────────────────────────────────────────────────
 
 export async function removeFromQueue(telegramId: string): Promise<boolean> {
-  const item = await QueueItem.findOneAndDelete({ telegramId });
+  const item = await QueueItem.findOneAndDelete({ telegramId: Number(telegramId) });
   if (!item) return false;
-  await User.updateOne({ telegramId }, { $set: { state: "idle" } });
-  await addLog("queue", `Removed ${item.telegramName} from queue`, telegramId);
+  await User.updateOne({ telegramId: Number(telegramId) }, { $set: { state: "idle" } });
+  const name = (item as any).telegramName || (item as any).telegramUsername || telegramId;
+  await addLog("queue", `Removed ${name} from queue`, telegramId);
   return true;
 }
 
 export async function clearEntireQueue(): Promise<number> {
   const count = await QueueItem.countDocuments();
   const items = await QueueItem.find().select("telegramId").lean();
-  const ids = items.map((i) => i.telegramId);
+  const ids = items.map((i: any) => Number(i.telegramId));
   await QueueItem.deleteMany({});
   if (ids.length > 0) {
     await User.updateMany({ telegramId: { $in: ids } }, { $set: { state: "idle" } });
@@ -527,30 +555,34 @@ export async function clearEntireQueue(): Promise<number> {
 
 export async function forceRematch(telegramIdA: string, telegramIdB: string): Promise<unknown> {
   const [itemA, itemB] = await Promise.all([
-    QueueItem.findOne({ telegramId: telegramIdA }),
-    QueueItem.findOne({ telegramId: telegramIdB }),
+    QueueItem.findOne({ telegramId: Number(telegramIdA) }),
+    QueueItem.findOne({ telegramId: Number(telegramIdB) }),
   ]);
   if (!itemA || !itemB) throw new Error("One or both queue items not found");
 
   const match = await Match.create({
-    user1Id: itemA.telegramId,
-    user2Id: itemB.telegramId,
-    link1: itemA.pendingLink,
-    link2: itemB.pendingLink,
+    user1Id: String(itemA.telegramId),
+    user2Id: String(itemB.telegramId),
+    link1: (itemA as any).pendingLink || "",
+    link2: (itemB as any).pendingLink || "",
     status: "active",
-    proofStatus: "none",
-    approvalStatus: "pending",
+    user1ProofSubmitted: false,
+    user2ProofSubmitted: false,
+    user1ProofApprovedByPartner: false,
+    user2ProofApprovedByPartner: false,
   });
 
   await Promise.all([
-    QueueItem.deleteMany({ telegramId: { $in: [telegramIdA, telegramIdB] } }),
+    QueueItem.deleteMany({ telegramId: { $in: [Number(telegramIdA), Number(telegramIdB)] } }),
     User.updateMany(
-      { telegramId: { $in: [telegramIdA, telegramIdB] } },
+      { telegramId: { $in: [Number(telegramIdA), Number(telegramIdB)] } },
       { $set: { state: "matched" } }
     ),
   ]);
 
-  await addLog("match", `Admin force-created match between ${itemA.telegramName} and ${itemB.telegramName}`);
+  const nameA = (itemA as any).telegramName || (itemA as any).telegramUsername || telegramIdA;
+  const nameB = (itemB as any).telegramName || (itemB as any).telegramUsername || telegramIdB;
+  await addLog("match", `Admin force-created match between ${nameA} and ${nameB}`);
   return match;
 }
 
@@ -564,8 +596,8 @@ export async function runCleanup(type: string): Promise<{ count: number }> {
   switch (type) {
     case "stale_queue": {
       const cutoff = new Date(Date.now() - queueTimeoutMinutes * 60 * 1000);
-      const stale = await QueueItem.find({ queuedAt: { $lt: cutoff } }).select("telegramId").lean();
-      const ids = stale.map((i) => i.telegramId);
+      const stale = await QueueItem.find({ createdAt: { $lt: cutoff } }).select("telegramId").lean();
+      const ids = stale.map((i: any) => Number(i.telegramId));
       count = ids.length;
       if (count > 0) {
         await QueueItem.deleteMany({ telegramId: { $in: ids } });
@@ -586,19 +618,20 @@ export async function runCleanup(type: string): Promise<{ count: number }> {
         $set: { status: "cancelled", cancelReason: "timeout" },
       });
       if (ids.length > 0) {
-        await User.updateMany({ telegramId: { $in: ids } }, { $set: { state: "idle" } });
+        await User.updateMany({ telegramId: { $in: ids.map(Number) } }, { $set: { state: "idle" } });
       }
       await addLog("cleanup", `Force-cancelled ${count} stuck active matches`);
       break;
     }
 
     case "duplicate_queues": {
-      const all = await QueueItem.find().sort({ queuedAt: 1 }).lean();
+      const all = await QueueItem.find().sort({ createdAt: 1 }).lean();
       const seen = new Set<string>();
-      const toDelete: string[] = [];
-      for (const q of all) {
-        if (seen.has(q.telegramId)) toDelete.push(q.telegramId);
-        else seen.add(q.telegramId);
+      const toDelete: number[] = [];
+      for (const q of all as any[]) {
+        const key = String(q.telegramId);
+        if (seen.has(key)) toDelete.push(Number(q.telegramId));
+        else seen.add(key);
       }
       count = toDelete.length;
       if (count > 0) {
@@ -621,12 +654,17 @@ export async function simulateBroadcast(target: string, message: string) {
   const now = new Date();
   let filter: Record<string, unknown> = {};
   if (target === "tiktok_registered") filter = { tiktokUsername: { $ne: "" } };
-  else if (target === "active_only") filter = { isBanned: false, $or: [{ cancelCooldownUntil: null }, { cancelCooldownUntil: { $lt: now } }] };
+  else if (target === "banned") filter = { isBanned: true };
+  else if (target === "cooldown") filter = { cancelCooldownUntil: { $gt: now } };
 
-  const estimatedRecipients = await User.countDocuments(filter);
-  const failedCount = Math.floor(Math.random() * Math.ceil(estimatedRecipients * 0.05));
-  const sentCount = estimatedRecipients - failedCount;
+  const recipientCount = await User.countDocuments(filter);
 
-  await addLog("broadcast", `Admin broadcast to [${target}] — ${sentCount} sent, ${failedCount} failed.`);
-  return { estimatedRecipients, sentCount, failedCount };
+  await addLog("admin", `Admin broadcast to "${target}" (${recipientCount} users): ${message.slice(0, 80)}`);
+
+  return {
+    target,
+    recipientCount,
+    message,
+    simulatedAt: now.toISOString(),
+  };
 }
