@@ -1,6 +1,6 @@
 const API_BASE =
   (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ||
-  "";
+  "https://site--cutprice-api--d8w4sfqmrf5q.code.run";
 
 const TOKEN_KEY = "cutpricebot_admin_token";
 const TIMEOUT_MS = 15_000;
